@@ -27,7 +27,7 @@ Now, run the `pymol_script` to renumber the heavy chain with 1001 and merge it w
 python pymol_script.py <complex.pdb>
 ```
 
-Then, atomic interactions (e.g. ionic, hydrogen bonds, and hydrophobics) are identified with `interfacea`. For this, run the `server_contact_interfacea.sh` script under **interfacea folder**.
+Then, atomic interactions (e.g. ionic, hydrogen bonds, and hydrophobics) are identified with `interfacea`. For this, follow the installation instructions of interfacea and then run the `server_contact_interfacea.sh` script under **interfacea folder**.
 
 ```
 chmod +x server_contact_interfacea.sh
