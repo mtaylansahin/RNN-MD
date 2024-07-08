@@ -5,6 +5,7 @@ In this study, we aim to examine the temporal dynamics of protein-protein intera
 ## System Dependencies
 * [RE-Net](https://github.com/INK-USC/RE-Net)
 * conda 
+* pymol
 
 
 ## Python Dependencies
@@ -18,8 +19,14 @@ In this study, we aim to examine the temporal dynamics of protein-protein intera
 * plotly
 * kaleido
 
-## Installing
-After clone the RNN-MD, run the following commands for installation requirements:
+## Installation
+
+Clone the repository
+```
+git clone https://github.com/mehdikosaca/RNN-MD.git
+cd RNN-MD
+```
+After clone the RNN-MD repository, run the following commands for installation requirements:
 ```
 conda create -n renet python=3.6 numpy
 conda activate renet
