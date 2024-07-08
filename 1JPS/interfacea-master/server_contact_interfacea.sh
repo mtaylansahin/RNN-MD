@@ -33,10 +33,12 @@ fi
 
 echo "Models were successfully separated and saved."
 
-cd "pdbs/"
-foreach i(*pdb)
-    #cp $i complex.pdb
+cd "PDBs/"
+for i in *.pdb; do
+    # Uncomment the following line if you need to copy the file as complex.pdb
+    # cp "$i" complex.pdb
     mkdir -p ../replica/rep1-interfacea
-    python contacts_type.py > ../replica/rep1-interfacea$i".interfacea" 
-end
+    python ../contacts_type.py $i > ../replica/rep1-interfacea/"$i.interfacea"
+done
 
+echo "Processing completed."

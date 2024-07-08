@@ -1,5 +1,8 @@
 import interfacea as ia
 import pandas as pd
+import sys
+
+data = sys.argv[1]
 
 # below given lines are there to print the whole dataframe content
 pd.set_option('display.max_rows', None)
@@ -7,7 +10,7 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 pd.set_option('display.max_colwidth', None)
 
-mol = ia.read('complex.pdb')
+mol = ia.read(data)
 
 analyzer = ia.InteractionAnalyzer(mol)
 analyzer.get_hydrophobic(include_intra=True)
