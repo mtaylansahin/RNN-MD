@@ -1,0 +1,2 @@
+Recall: 0.50, Precision: 0.67, TPR: 0.50, FPR: 0.01, F1: 0.57, MCC: 0.57
+Recall: 0.23, Precision: 0.57, TPR: 0.23, FPR: 0.00, F1: 0.33, MCC: 0.36
