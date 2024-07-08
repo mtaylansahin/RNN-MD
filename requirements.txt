@@ -17,3 +17,4 @@ pytz==2023.3.post1
 six @ file:///tmp/build/80754af9/six_1644875935023/work
 sklearn==0.0.post9
 tenacity==8.2.2
+pymol

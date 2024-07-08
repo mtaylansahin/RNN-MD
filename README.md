@@ -1,6 +1,6 @@
 # Prediction of Protein Interaction Dynamics by Graph Neural Networks
 
-Molecular dynamics simulations are an integral process for understanding protein-protein interactions (PPIs). However, they can be computationally expensive and time-consuming. In this study we explore whether machine learning can be integrated with molecular dynamics to reduce the costs of the simulations. For this we have selected and trained the [RE-Net](https://github.com/INK-USC/RE-Net) model from [pytorch geometric library](https://pytorch-geometric.readthedocs.io/en/latest/modules/nn.html) and analyzed the predicted interactions.
+In this study, we aim to examine the temporal dynamics of protein-protein interactions (PPIs) through the application of deep learning techniques. We selected recurrent neural networks (RNNs) for their ability to effectively capture and summarize sequences of PPI dynamics. By modifying the parameters of an existing application ([RE-Net](https://github.com/INK-USC/RE-Net)), we developed a method termed RNN-MD. This approach utilizes historical interaction data from molecular dynamics (MD) simulations and the output from the [interfacea tool](https://github.com/JoaoRodrigues/interfacea) to predict future interactions.
 
 ## System Dependencies
 * [RE-Net](https://github.com/INK-USC/RE-Net)
@@ -19,7 +19,7 @@ Molecular dynamics simulations are an integral process for understanding protein
 * kaleido
 
 ## Installing
-After clone the RE-Net, run the following commands:
+After clone the RNN-MD, run the following commands for installation requirements:
 ```
 conda create -n renet python=3.6 numpy
 conda activate renet
@@ -27,30 +27,28 @@ pip install torch==1.6.0+cu101 torchvision==0.7.0+cu101 -f https://download.pyto
 conda install -c dglteam "dgl-cuda10.1<0.5"
 conda install cudatoolkit=10.1
 pip install -r requirements.txt
-pip install -U kaleido
-```
-This creates a conda environment into the repository and install dependencies to run MD_ML.
-
-## Usage
-Conda environment must be activated before use the RNN-MD.
-```
 conda activate renet
 ```
-And, run the individual scripts in the specified order.
+This creates a conda environment into the repository and install dependencies to run RNN-MD.
+
+## Usage
+
+### Converting an Ensemble PDB File from Trajectory and Topology Data and Generating Interface Outputs
+
+In the first step, the trajectory and topology data need to be converted into an ensemble PDB file. Follow the instructions provided in the README.md file located in the 1JPS folder ([README.md](/1JPS/README.MD)). After completing this step, the interface data must be converted to the [special format](#dataset-formatting) required for processing the RNN-MD for training.
+
 ```
-python format.py [input_folder] [atomic/residue] [replica_no] [chain 1] [chain 2] [train_ration] [valid_ratio]
+python format.py [input_folder] [atomic/residue] [replica_no] [chain 1] [chain 2] [train_ratio] [valid_ratio]
 ```
-Before using the `model_train.py`, please ensure the `get_history_graph.py` script under the `/RE-Net/data/<your_case>`directory. Then you can use it as following:
+This script generates **train.txt, valid.txt, test.txt, and stat.txt** files based on the specified split rule. Move these files to the `RE-Net/data/<case_id>` folder along with the `get_history_graph.py` script and the `labels.txt` file. Then, run the *get_history_graph.py* script to generate history graphs for your training set. Finally, you can train the model with your specified parameters and make predictions by running the scripts below.
+
 ```
 python model_train.py --dropout [dropout] --learning_rate [learning rate] --batch_size [batch size] --pretrain_epochs [pretrain epochs] --train_epochs [train epochs] --n_hidden [number of hidden] your_file_name_here
 python result.py [output_file]
 ```
 
-Please make sure load the cuda if you are running on HPC.
-```
-module load [cuda_toolkit]
-```
-It is an example slurm content for HPC:
+If you are working on an HPC and want to run the process using a Slurm file, you should prepare and execute a Slurm file similar to the example below. 
+
 ```
 #!/bin/bash
 #SBATCH --partition=ulimited3
@@ -72,14 +70,14 @@ srun python result.py output_renet_1JPS_default.txt
 exit
 ```
 
-If you want to apply hyperparameter optimization to the case, you can run `hyperparameter_optimization.sh` slurm file at your HPC.
+In this study, a separate Slurm file has been prepared for hyperparameter optimization due to the numerous parameters tested on RE-Net. If you also wish to perform hyperparameter optimization, you can edit and execute the `hyperparameter_optimization.sh` Slurm file located in the main directory.
 
 ## Dataset Formatting
-We have used two formats to represent interactions using `format.py` according to RE-Net input format.
+We have used two formats (**atomic and residue**) to represent interactions using `format.py` according to RE-Net input format.
 In both descriptions relations were set as the interaction types: hydrophobic, ionic and hydrogen bonding. 
 Labels for interaction types were <span style="color:green">0: hbond</span>, <span style="color:blue">1: hydrophobic</span>, <span style="color:red">2: ionic</span>.
 
-### 1- Residue Description
+### Residue Description
 Interacting residues in a dimeric interaction was described by numbering the residues in both chains (with chain B labels being incremented after the last residue number in chain A)
 
 example :
@@ -90,3 +88,8 @@ example :
 .       .    .          .
 .       .    .          .
 
+### Bug Report & Feedback
+If you encounter any problem, you can contact with Ezgi:
+
+### Contacts
+- ezgi.karaca@ibg.edu.tr
