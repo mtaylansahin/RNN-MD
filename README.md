@@ -38,6 +38,15 @@ conda activate renet
 ```
 This creates a conda environment into the repository and install dependencies to run RNN-MD.
 
+### Quick Installation
+
+Or you can directly run for quick installation of RNN-MD and interfacea under the 1JPS
+
+```
+chmod +x setup.sh
+./setup.sh
+```
+
 ## Usage
 
 ### Converting an Ensemble PDB File from Trajectory and Topology Data and Generating Interface Outputs
