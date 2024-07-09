@@ -4,8 +4,10 @@ In this study, we aim to examine the temporal dynamics of protein-protein intera
 
 ## Code Architecture
 
+Initially, trajectory and topology data are used to generate an MD ensemble, capturing dynamic molecular conformations. The MD ensemble is then analyzed using the Interfacea tool to produce interaction data, including hydrophobic interactions, hydrogen bonds, and salt bridges. This interaction data is split into training, validation, and test sets. A recurrent neural network (RNN) model is pretrained and trained using the training and validation sets to learn patterns from the interaction data. Finally, the trained model is used to predict future interactions, providing valuable insights into molecular behavior.
+
 <p align="center">
-<img align="center" src="/code_architecture.png" width = "400" />
+<img align="center" src="/code_architecture.png" width = "600" />
 </p>
 
 
