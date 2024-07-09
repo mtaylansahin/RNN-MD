@@ -2,6 +2,13 @@
 
 In this study, we aim to examine the temporal dynamics of protein-protein interactions (PPIs) through the application of deep learning techniques. We selected recurrent neural networks (RNNs) for their ability to effectively capture and summarize sequences of PPI dynamics. By modifying the parameters of an existing application ([RE-Net](https://github.com/INK-USC/RE-Net)), we developed a method termed RNN-MD. This approach utilizes historical interaction data from molecular dynamics (MD) simulations and the output from the [interfacea tool](https://github.com/JoaoRodrigues/interfacea) to predict future interactions.
 
+## Code Architecture
+
+<p align="center">
+<img align="center" src="/code_architecture.png" width = "400" />
+</p>
+
+
 ## System Dependencies
 * [RE-Net](https://github.com/INK-USC/RE-Net)
 * conda 
