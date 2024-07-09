@@ -22,10 +22,7 @@ gmx trjconv -f complex_md-nojump-cent-cluster.xtc -s topo.tpr -fit rot+trans -o 
 
 gmx trjconv -f complex_md-fit.xtc -s topo.tpr -dt 100 -o complex_md-fit.pdb # Select protein
 ```
-Now, run the `pymol_script` to renumber the heavy chain with 1001 and merge it with light chain.
-```
-python pymol_script.py <complex.pdb>
-```
+**Now, add "1000" to heavy chain (chain B) and merge it with light chain.** 
 
 Then, atomic interactions (e.g. ionic, hydrogen bonds, and hydrophobics) are identified with `interfacea`. For this, follow the installation instructions of interfacea and then run the `server_contact_interfacea.sh` script under **interfacea folder**.
 

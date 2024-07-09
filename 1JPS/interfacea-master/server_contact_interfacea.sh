@@ -6,6 +6,7 @@ read -p "Enter the path of your complex: " COMPLEX_NAME
 # Define the directory where the output PDB files will be saved
 output_dir="PDBs"
 mkdir -p "$output_dir"
+mkdir -p ../replica1/rep1-interfacea
 
 # Initialize variables
 current_model=""
@@ -18,6 +19,7 @@ while IFS= read -r line; do
         if [[ -n $current_model ]]; then
             echo "$model_data" > "${output_dir}/model_${current_model}.pdb"
             model_data=""
+            python contacts_type.py "${output_dir}/model_${current_model}.pdb" > ../replica/rep1-interfacea/"$i.interfacea"
         fi
         # Update the current model number
         current_model=$(echo $line | awk '{print $2}')
@@ -32,13 +34,5 @@ if [[ -n $current_model ]]; then
 fi
 
 echo "Models were successfully separated and saved."
-
-cd "PDBs/"
-for i in *.pdb; do
-    # Uncomment the following line if you need to copy the file as complex.pdb
-    # cp "$i" complex.pdb
-    mkdir -p ../replica/rep1-interfacea
-    python ../contacts_type.py $i > ../replica/rep1-interfacea/"$i.interfacea"
-done
 
 echo "Processing completed."
