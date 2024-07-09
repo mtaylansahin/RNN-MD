@@ -40,11 +40,12 @@ After clone the RNN-MD repository, run the following commands for installation r
 conda create -n renet python=3.6 numpy
 conda activate renet
 pip install torch==1.6.0+cu101 torchvision==0.7.0+cu101 -f https://download.pytorch.org/whl/torch_stable.html
-conda install -c dglteam "dgl-cuda10.1<0.5"
+pip install dgl-cu101==0.4.3.post2
 conda install cudatoolkit=10.1
 pip install -r requirements.txt
 conda activate renet
 ```
+dgl-cuda10.1<0.5 is not avaiable conda no longer. Instead, move `dgl` and `dgl-0.5.0-py3.6.egg-info` to the environment folder at `.conda/envs/<env_name>/lib/python3.6/site-packages`
 This creates a conda environment into the repository and install dependencies to run RNN-MD.
 
 ### Quick Installation
