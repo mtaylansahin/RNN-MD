@@ -12,7 +12,7 @@ read -p "Enter the path to the data directory: " CASE_DIR
 read -p "Enter your file name to analyze: " CASE
 cd $CASE_DIR
 
-module load cuda10.2/toolkit/9.2.88
+module load cuda9.2/toolkit/9.2.88
 
 srun python pretrain.py -d $CASE --gpu 0 --dropout 0.1 --n-hidden 100 --lr 1e-3 --max-epochs 30 --batch-size 128
 srun python train.py -d $CASE --gpu 0 --dropout 0.1 --n-hidden 100 --lr 1e-3 --max-epoch 10 --batch-size 128 --num-k 5
