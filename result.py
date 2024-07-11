@@ -574,7 +574,7 @@ def main():
 
     # OUTPUT BUBBLE HEATMAP DF
 
-    output_bubble = get_res_heatmap_df(output_post_process)
+    output_bubble = get_res_heatmap_df_output(output_post_process)
     output_bubble['type'] = 'PREDICTED DATA'
     output_bubble['freq'] = output_bubble['values'] / (np.max(output_post_process['time_stamp']) - np.min(output_post_process['time_stamp']) +1)
 
@@ -596,7 +596,6 @@ def main():
     fig.write_image(os.path.join(output_dir, "Bubble_Heatmap.png"))
 
     print("Bubble heatmap saved to Bubble_Heatmaps.png")
-
 
 if __name__ == "__main__":
     main()
