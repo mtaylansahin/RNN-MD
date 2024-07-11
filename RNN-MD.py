@@ -146,9 +146,6 @@ if __name__ == "__main__":
     os.makedirs(data_dir_path, exist_ok=True)
     print(f"Directory '{data_dir_path}' created (or already exists).")
 
-    # Copy all .txt files and the get_history_graph.py script from the input data_dir to the new data_dir
-    copy_txt_files(args.data_dir, data_dir_path)
-
     # Call the format.py script with the specified arguments
     format_script_path = "format.py"  # Adjust the path as needed
     format_args = [
@@ -160,6 +157,9 @@ if __name__ == "__main__":
         args.train_ratio,
         args.valid_ratio
     ]
+
+    # Copy all .txt files and the get_history_graph.py script from the input data_dir to the new data_dir
+    copy_txt_files(args.data_dir, data_dir_path)
 
     try:
         result = subprocess.run([sys.executable, format_script_path] + format_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

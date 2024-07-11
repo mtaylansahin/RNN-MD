@@ -1,8 +1,5 @@
 #!/bin/bash
 
-DEST_DIR="/home/$USER/.conda/envs/RNN-MD-2/lib/python3.6/site-packages"
-
-
 # Create and activate conda environment
 conda create -n RNN-MD python=3.6 numpy -y
 source activate RNN-MD
