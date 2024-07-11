@@ -1,4 +1,4 @@
-import numpy as np
+import numpy as np # type: ignore
 import os
 import re
 import pandas as pd

@@ -17,3 +17,5 @@ six
 scikit-learn
 tenacity
 pandas
+seaborn
+openpyxl

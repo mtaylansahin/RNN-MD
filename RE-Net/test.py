@@ -7,8 +7,7 @@ from model import RENet
 from global_model import RENet_global
 import pickle
 
-
-def test(args):
+def test(args, run_id):
     # load data
     num_nodes, num_rels = utils.get_total_number('./data/' + args.dataset, 'stat.txt')
     if args.dataset == 'icews_know':
@@ -27,17 +26,16 @@ def test(args):
         torch.cuda.set_device(args.gpu)
         torch.cuda.manual_seed_all(999)
 
-
     model_state_file = 'models/' + args.dataset + '/rgcn.pth'
     model_graph_file = 'models/' + args.dataset + '/rgcn_graph.pth'
     model_state_global_file2 = 'models/' + args.dataset + '/max' + str(args.maxpool) + 'rgcn_global2.pth'
 
     model = RENet(num_nodes,
-                    args.n_hidden,
-                    num_rels,
-                    model=args.model,
-                    seq_len=args.seq_len,
-                    num_k=args.num_k)
+                  args.n_hidden,
+                  num_rels,
+                  model=args.model,
+                  seq_len=args.seq_len,
+                  num_k=args.num_k)
     global_model = RENet_global(num_nodes,
                                 args.n_hidden,
                                 num_rels,
@@ -45,27 +43,22 @@ def test(args):
                                 seq_len=args.seq_len,
                                 num_k=args.num_k, maxpool=args.maxpool)
 
-
     if use_cuda:
         model.cuda()
         global_model.cuda()
 
-
-    with open('data/' + args.dataset+'/test_history_sub.txt', 'rb') as f:
+    with open('data/' + args.dataset + '/test_history_sub.txt', 'rb') as f:
         s_history_test_data = pickle.load(f)
-    with open('data/' + args.dataset+'/test_history_ob.txt', 'rb') as f:
+    with open('data/' + args.dataset + '/test_history_ob.txt', 'rb') as f:
         o_history_test_data = pickle.load(f)
 
-    ##these take the history graph to be used
     s_history_test = s_history_test_data[0]
     s_history_test_t = s_history_test_data[1]
     o_history_test = o_history_test_data[0]
     o_history_test_t = o_history_test_data[1]
 
-
-
     print("\nstart testing:")
-        
+
     checkpoint = torch.load(model_state_file, map_location=lambda storage, loc: storage)
     model.load_state_dict(checkpoint['state_dict'])
     model.s_hist_test = checkpoint['s_hist']
@@ -88,12 +81,10 @@ def test(args):
 
     print("Using best epoch: {}".format(checkpoint['epoch']))
 
-
     total_data = torch.from_numpy(total_data)
     test_data = torch.from_numpy(test_data)
     print(total_data)
     model.eval()
-    #print(model.eval())
     global_model.eval()
     total_loss = 0
     total_ranks = np.array([])
@@ -103,35 +94,25 @@ def test(args):
         while len(model.s_hist_test[ee]) > args.seq_len:
             model.s_hist_test[ee].pop(0)
             model.s_hist_test_t[ee].pop(0)
-           # print( model.s_hist_test[ee].pop(0))
-           # print( model.s_hist_test_t[ee].pop(0))
         while len(model.o_hist_test[ee]) > args.seq_len:
             model.o_hist_test[ee].pop(0)
             model.o_hist_test_t[ee].pop(0)
-           # print(model.o_hist_test[ee].pop(0))
-           # print(model.o_hist_test_t[ee].pop(0))
 
     if use_cuda:
         total_data = total_data.cuda()
-        
+
     latest_time = test_times[0]
-    ####MY ADD####
-    outputs = np.zeros((len(test_data), 3),dtype=int)
-    ##############
+    outputs = np.zeros((len(test_data), 3), dtype=int)
     print("test times: ", test_times)
     for i in range(len(test_data)):
-        
+
         batch_data = test_data[i]
-        ####MY ADD####
-        print("ground truth:" , batch_data.cpu().numpy())
-        ##############
-        
+        print("ground truth:", batch_data.cpu().numpy())
+
         s_hist = s_history_test[i]
         o_hist = o_history_test[i]
         s_hist_t = s_history_test_t[i]
-        #print("s_hist_t:" , s_hist_t)
         o_hist_t = o_history_test_t[i]
-        #print("o_hist_t:" , o_hist_t)
         if latest_time != batch_data[3]:
             ranks.append(total_ranks_filter)
             latest_time = batch_data[3]
@@ -140,60 +121,51 @@ def test(args):
         if use_cuda:
             batch_data = batch_data.cuda()
 
-        with torch.no_grad(): ####this freezes weights###
-            # Filtered metric
+        with torch.no_grad():
             if args.raw:
-                ranks_filter, loss = model.evaluate(batch_data, (s_hist, s_hist_t), (o_hist, o_hist_t),
-                                                    global_model)
+                ranks_filter, loss = model.evaluate(batch_data, (s_hist, s_hist_t), (o_hist, o_hist_t), global_model)
             else:
                 ranks_filter, loss = model.evaluate_filter(batch_data, (s_hist, s_hist_t), (o_hist, o_hist_t),
                                                            global_model, total_data)
-           # print(model(batch_data,(s_hist, s_hist_t), (o_hist, o_hist_t),
-            #                                        global_model))
-            #print(ranks_filter)
-            ####MY ADDS######
             loss, sub_pred, ob_pred = model.predict(batch_data, (s_hist, s_hist_t), (o_hist, o_hist_t), global_model)
             outputs[i][0] = np.argmax(sub_pred.cpu().numpy())
             outputs[i][1] = np.argmax(ob_pred.cpu().numpy())
             outputs[i][2] = batch_data.cpu()[3]
             print("subject: ", np.argmax(sub_pred.cpu().numpy()), "object: ", np.argmax(ob_pred.cpu().numpy()))
-            ##################
             total_ranks_filter = np.concatenate((total_ranks_filter, ranks_filter))
             total_loss += loss.item()
 
     ranks.append(total_ranks_filter)
-    ####MY ADDS######
-    np.savetxt('output_renet_'+ args.dataset+'.txt', outputs,fmt='% 4d')
-    ##################
+    np.savetxt(f'output_renet_{args.dataset}_{run_id}.txt', outputs, fmt='% 4d')
     for rank in ranks:
-        total_ranks = np.concatenate((total_ranks,rank))
+        total_ranks = np.concatenate((total_ranks, rank))
     mrr = np.mean(1.0 / total_ranks)
     mr = np.mean(total_ranks)
     hits = []
 
-    for hit in [1,3,10]:
+    for hit in [1, 3, 10]:
         avg_count = np.mean((total_ranks <= hit))
         hits.append(avg_count)
         print("Hits (filtered) @ {}: {:.6f}".format(hit, avg_count))
     print("MRR (filtered): {:.6f}".format(mrr))
     print("MR (filtered): {:.6f}".format(mr))
 
+    # Rename the output file
+    original_output_file = f'output_renet_{args.dataset}_{run_id}.txt'
+    new_output_file = f'{args.dataset}_prediction_set_{run_id}.txt'
+    if os.path.exists(original_output_file):
+        os.rename(original_output_file, new_output_file)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='RENet')
-    parser.add_argument("-d", "--dataset", type=str, default='ICEWS18',
-            help="dataset to use")
-    parser.add_argument("--gpu", type=int, default=0,
-            help="gpu")
+    parser.add_argument("-d", "--dataset", type=str, default='ICEWS18', help="dataset to use")
+    parser.add_argument("--gpu", type=int, default=0, help="gpu")
     parser.add_argument("--model", type=int, default=3)
-    parser.add_argument("--n-hidden", type=int, default=200,
-            help="number of hidden units")
+    parser.add_argument("--n-hidden", type=int, default=200, help="number of hidden units")
     parser.add_argument("--seq-len", type=int, default=10)
-    parser.add_argument("--num-k", type=int, default=1000,
-                    help="cuttoff position")
+    parser.add_argument("--num-k", type=int, default=1000, help="cuttoff position")
     parser.add_argument("--maxpool", type=int, default=1)
     parser.add_argument('--raw', action='store_true')
 
     args = parser.parse_args()
-    test(args)
-
+    test(args, 1)

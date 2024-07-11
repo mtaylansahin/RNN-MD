@@ -1,6 +1,8 @@
 # Prediction of Protein Interaction Dynamics by Graph Neural Networks
 
-In this study, we aim to examine the temporal dynamics of protein-protein interactions (PPIs) through the application of deep learning techniques. We selected recurrent neural networks (RNNs) for their ability to effectively capture and summarize sequences of PPI dynamics. By modifying the parameters of an existing application ([RE-Net](https://github.com/INK-USC/RE-Net)), we developed a method termed RNN-MD. This approach utilizes historical interaction data from molecular dynamics (MD) simulations and the output from the [interfacea tool](https://github.com/JoaoRodrigues/interfacea) to predict future interactions.
+## Motivation
+
+In this study, we aim to examine the temporal dynamics of protein-protein interactions (PPIs) through the application of deep learning technique. We selected recurrent neural networks (RNNs) for their ability to effectively capture and summarize sequences of PPI dynamics. By modifying the parameters of an existing application ([RE-Net](https://github.com/INK-USC/RE-Net)), we developed a method termed RNN-MD. This approach utilizes historical interaction data from molecular dynamics (MD) simulations and the output from the [interfacea tool](https://github.com/JoaoRodrigues/interfacea) to predict future interactions.
 
 ## Code Architecture
 
@@ -27,6 +29,7 @@ Initially, trajectory and topology data are used to generate an MD ensemble, cap
 * matplotlib
 * plotly
 * kaleido
+* seaborn
 
 ## Installation
 
@@ -37,20 +40,20 @@ cd RNN-MD
 ```
 After clone the RNN-MD repository, run the following commands for installation requirements:
 ```
-conda create -n renet python=3.6 numpy
-conda activate renet
+conda create -n RNN-MD python=3.6 numpy
+conda activate RNN-MD
 pip install torch==1.6.0+cu101 torchvision==0.7.0+cu101 -f https://download.pytorch.org/whl/torch_stable.html
 pip install dgl-cu101==0.4.3.post2
 conda install cudatoolkit=10.1
 pip install -r requirements.txt
-conda activate renet
+conda activate RNN-MD
 ```
-dgl-cuda10.1<0.5 is not avaiable conda no longer. Instead, move `dgl` and `dgl-0.5.0-py3.6.egg-info` to the environment folder at `.conda/envs/<env_name>/lib/python3.6/site-packages`
+
 This creates a conda environment into the repository and install dependencies to run RNN-MD.
 
 ### Quick Installation
 
-Or you can directly run for quick installation of RNN-MD and interfacea under the 1JPS
+Or you can directly run for quick installation of RNN-MD.
 
 ```
 chmod +x setup.sh
@@ -59,21 +62,54 @@ chmod +x setup.sh
 
 ## Usage
 
-### Converting an Ensemble PDB File from Trajectory and Topology Data and Generating Interface Outputs
+**RNN-MD.py** accepts many paramaters as inputs. You can examine all parameters via `python RNN-MD.py --help` command. If you want to run RNN-MD with default parameters. You must run as following:
 
-In the first step, the trajectory and topology data need to be converted into an ensemble PDB file. Follow the instructions provided in the README.md file located in the 1JPS folder ([README.md](/1JPS/README.MD)). After completing this step, the interface data must be converted to the [special format](#dataset-formatting) required for processing the RNN-MD for training.
+```
+python RNN-MD.py --data_dir <Interaction_data_dir> --replica <Replica_number> --chain1 <First_chain> --chain2 <Second_chain> --train_ratio <Split_ratio_for_train> --valid_ratio <Split_ratio_for_valid>
+```
+You can find an example usage of RNN-MD.py following:
+```
+python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.9
+```
+If you want to play with parameters, you should enter them as a string. These parameters can either be a single value or a range formatted as [start, stop, step]. Example usage is given following:
+```
+python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.9 --dropout "[0.4]" --train_epochs "[10, 100, 10]"
+```
+
+If you are working on an HPC, you must use a slurm file to run the script. Example file is given below:
+
+```
+#!/bin/bash
+#SBATCH --partition=ulimited3
+#SBATCH --job-name=RNN-MD
+#SBATCH --ntasks-per-node=33
+#SBATCH --nodes=1
+#SBATCH --mail-type=END
+
+module load cuda92/toolkit/9.2.88
+source activate RNN-MD
+
+# Run main.py script with the desired arguments
+srun python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.9 --train_epochs "[10, 50, 10]"
+
+exit
+```
+
+### Usage of Individual Scripts
+
+* The `format.py` script takes interface outputs as inputs to generates *train.txt*, *valid.txt*, *test.txt*, *stat.txt* files according to you specified train and valid ratios. Example usage is following:
 
 ```
 python format.py [input_folder] [atomic/residue] [replica_no] [chain 1] [chain 2] [train_ratio] [valid_ratio]
 ```
-This script generates **train.txt, valid.txt, test.txt, and stat.txt** files based on the specified split rule. Move these files to the `RE-Net/data/<case_id>` folder along with the `get_history_graph.py` script and the `labels.txt` file. Then, run the *get_history_graph.py* script to generate history graphs for your training set. Finally, you can train the model with your specified parameters and make predictions by running the scripts below.
+- After generating **train.txt, valid.txt, test.txt, and stat.txt**, move them  to the `RE-Net/data/<case_id>` folder along with the `get_history_graph.py` script and the `labels.txt` file. Then, run the *get_history_graph.py* script to generate history graphs for your training set. Finally, you can train the model with your specified parameters, make predictions and create plots by running the scripts below.
 
 ```
 python model_train.py --dropout [dropout] --learning_rate [learning rate] --batch_size [batch size] --pretrain_epochs [pretrain epochs] --train_epochs [train epochs] --n_hidden [number of hidden] your_file_name_here
-python result.py [output_file]
+python result.py --input_dir [where is inputs (eg.RE-Net/data/1JPS)] --output_dir [where is output move (eg. results/1JPS_results_kg4fsd) --ouput_file_dir (eg. results/1JPS_results_kg4fsd/1JPS_prediction_set_1.txt)]
 ```
 
-If you are working on an HPC and want to run the process using a Slurm file, you should prepare and execute a Slurm file similar to the example below. 
+* If you are working on an HPC you must use slurm file to run individual scripts. Example file is given below: 
 
 ```
 #!/bin/bash
@@ -91,12 +127,34 @@ module load cuda92/toolkit/9.2.88
 
 srun python format.py 1JPS residue 1 A C 0.8 0.9
 srun python model_train.py --dropout 0.5 --learning_rate 0.001 --batch_size 128 --pretrain_epochs 10 --train_epochs 30 --n_hidden 100 1JPS
-srun python result.py output_renet_1JPS_default.txt
+srun python result.py --input_dir RE-Net/data/1JPS --output_dir results/1JPS_results_kg4fsd --ouput_file_dir results/1JPS_results_kg4fsd/1JPS_prediction_set_1.txt
  
 exit
 ```
 
-In this study, a separate Slurm file has been prepared for hyperparameter optimization due to the numerous parameters tested on RE-Net. If you also wish to perform hyperparameter optimization, you can edit and execute the `hyperparameter_optimization.sh` Slurm file located in the main directory.
+## RNN-MD Output Files
+
+* **Ground Truth List:** The Ground Truth List provides actual values in the dataset. This list serves as the benchmark against which the model's predictions are compared to assess accuracy and performance.
+
+* **Prediction List:** The Prediction List contains the values or outcomes predicted by the RNN-MD model based on the input data. 
+
+* **Performance Metrics:** It provides quantitative evaluations of the RNN-MD model's effectiveness. These metrics typically include measures to accuracy, precision, TPR, FPR, recall, F1 score, and MCC score.
+
+* **Heatmap Similarity Score:** The Heatmap Similarity Score represents a quantitative measure of how similar the interaction patterns predicted by the RNN-MD model are to the actual interaction patterns observed in the ground truth data.
+
+* **All interactions Heatmap:** The All Interaction Heatmap visualizes the all interfacial interactions together with their percentages during MD simulations.
+
+* **Time-dependent interaction plot:** The Time-dependent Interaction Plot illustrates how interactions are observed over time. 
+
+* **Prediction Accuracy Plot:** The Prediction Accuracy Plot visualizes the False Positives and False negatives interactions.
+
+* **Ground Truth vs Prediction Heatmap:** The Ground Truth vs Prediction Heatmap provides a visual comparison between the actual values (ground truth) and the predicted values generated by the model.
+
+* **Ground Truth vs Prediction Bubble Heatmap:** The Ground Truth vs Prediction Bubble Heatmap visualizes the comparison between actual values (ground truth) and predicted values using bubbles.
+
+* **Prediction set in RNN-MD format:** The Prediction Set in RNN-MD Format consists of the predicted values [formatted](#dataset-formatting) specifically for use with the RNN-MD model.
+
+* **Metadata:** The Metadata includes brief information about which RNN-MD parameters are used to generate the predictions.
 
 ## Dataset Formatting
 We have used two formats (**atomic and residue**) to represent interactions using `format.py` according to RE-Net input format.

@@ -30,12 +30,6 @@ This README file provides an overview of the files and directories included in t
 4. **output/labels.txt**
    - A text file containing labels used in the analysis. This file is likely used for mapping or referencing data labels in the project.
 
-5. **output/loop.sh**
-   - A shell script file used to execute a series of commands or operations in a loop. This script is part of the automation process for the analysis.
-
-6. **output/loop_valid.sh**
-   - Another shell script file, similar to `loop.sh`, but specifically tailored for validation operations within the analysis process.
-
 7. **output/tables**
    -  **unique_values_not_in_ground_truth.xlsx**: This file contains information about false positive predictions. 
    -  **unpredictable_ground_truth.xlsx**: This file contains information about false negative predictions.
@@ -68,12 +62,10 @@ Each splitting directory (100-50-50, 160-20-20, 50-75-75) contains four main sub
    This directory contains various graphical representations of the analysis results for the xx-xx-xx data split.
 
    - **Missings_xx-xx-xx.png**: Plot showing missing values in the dataset.
-   - **bar_all_xx-xx-xx.html**: HTML file with a bar chart of all interactions.
    - **bar_all_xx-xx-xx.png**: PNG file with a bar chart of all interactions.
    - **bar_all_xx-xx-xx.svg**: SVG file with a bar chart of all interactions.
    - **bar_in_ground_truth_xx-xx-xx.png**: PNG file with a bar chart of interactions in the ground truth.
    - **bar_in_ground_truth_xx-xx-xx.svg**: SVG file with a bar chart of interactions in the ground truth.
-   - **bar_in_predicted_xx-xx-xx.html**: HTML file with a bar chart of predicted interactions.
    - **bar_in_predicted_xx-xx-xx.png**: PNG file with a bar chart of predicted interactions.
    - **bar_in_predicted_xx-xx-xx.svg**: SVG file with a bar chart of predicted interactions.
    - **heatmap_xx_xx_xx.png**: Heatmap of the interactions for the xx-xx-xx split.
