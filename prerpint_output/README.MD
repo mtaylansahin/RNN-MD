@@ -1,6 +1,6 @@
 ### README for Output Directory
 
-This README file provides an overview of the files and directories included in the preprint. Each file and its role within the project are described below.
+This README file provides an overview of the files and directories included in the extracted output. Each file and its role within the project are described below.
 
 #### File Descriptions
 
