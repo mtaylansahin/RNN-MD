@@ -158,6 +158,7 @@ class Format:
         return df_categorical
     
     def merged_interactions(self):
+        os.system("rm -rf {}/{}/merged_outpus".format(sys.argv[1],sys.argv[3]))
         os.makedirs(self.out_files, exist_ok=True)
 
         for i in range(0, len(self.files_list)):
