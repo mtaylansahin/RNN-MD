@@ -6,6 +6,7 @@ import sys
 import numpy as np
 import random
 import string
+import time
 
 
 def parse_arguments():
@@ -157,6 +158,8 @@ if __name__ == "__main__":
         args.train_ratio,
         args.valid_ratio
     ]
+
+    time.sleep(2)
 
     # Copy all .txt files and the get_history_graph.py script from the input data_dir to the new data_dir
     copy_txt_files(args.data_dir, data_dir_path)

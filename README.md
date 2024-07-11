@@ -48,7 +48,6 @@ pip install torch==1.6.0+cu101 torchvision==0.7.0+cu101 -f https://download.pyto
 pip install dgl-cu101==0.4.3.post2
 conda install cudatoolkit=10.1
 pip install -r requirements.txt
-conda activate RNN-MD
 ```
 
 This creates a conda environment into the repository and install dependencies to run RNN-MD.
@@ -84,16 +83,14 @@ If you are working on an HPC, you must use a slurm file to run the script. Examp
 #!/bin/bash
 #SBATCH --partition=ulimited3
 #SBATCH --job-name=RNN-MD
-#SBATCH --ntasks-per-node=33
+#SBATCG --ntasks-per-node=33
 #SBATCH --nodes=1
 #SBATCH --mail-type=END
-
+#SBATCH --output=vis_%j.out
+#SBATCH --error=vis_%j.err
 module load cuda92/toolkit/9.2.88
-source activate RNN-MD
-
 # Run main.py script with the desired arguments
-srun python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1 --train_epochs "[10, 50, 10]"
-
+srun python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1
 exit
 ```
 

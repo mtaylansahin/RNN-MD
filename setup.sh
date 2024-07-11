@@ -5,5 +5,6 @@ conda create -n RNN-MD python=3.6 numpy -y
 source activate RNN-MD
 pip install torch==1.6.0+cu101 torchvision==0.7.0+cu101 -f https://download.pytorch.org/whl/torch_stable.html
 pip install dgl-cu101==0.4.3.post2
+conda install cudatoolkit=10.1
 pip install -r requirements.txt
 

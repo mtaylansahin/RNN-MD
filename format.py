@@ -1,9 +1,11 @@
+from matplotlib import pyplot as plt
 import numpy as np # type: ignore
 import os
 import re
 import pandas as pd
 import sys
 import warnings
+import seaborn as sns
 warnings.filterwarnings('ignore')
 
 
@@ -115,6 +117,7 @@ class Format:
         self.input_directory = os.getcwd() + '/' + sys.argv[1] + '/' + self.current_replica
         self.input_files = self.input_directory + '/rep' + str(rep_no) + '-interfacea'  # for taking all input files (.interfacea)
         self.files_list = os.listdir(self.input_files)  # list of all interfacea files for given replica
+        self.out_files = self.input_directory + '/merged_outputs' 
         print("current replica: " + self.current_replica)
         print("input directory: " + self.input_directory)
 
@@ -153,6 +156,85 @@ class Format:
         ###NEW###
         np.savetxt(os.getcwd() + '/' + sys.argv[1] +'/labels.txt', df_categorical, fmt = "%s")
         return df_categorical
+    
+    def merged_interactions(self):
+        os.makedirs(self.out_files, exist_ok=True)
+
+        for i in range(0, len(self.files_list)):
+            if self.files_list[i].endswith(".interfacea"):
+                # Read the input file
+                df = pd.read_table(self.input_files + "/" + self.files_list[i], delim_whitespace=True)
+                
+                # Drop the last two columns
+                df_colDrop = df.drop(columns=[df.columns[-2], df.columns[-1]])
+                
+                # Remove duplicate rows
+                df_dropped = df_colDrop.drop_duplicates()
+                
+                # Filter and write to respective files for hydrophobics, hbonds, and ionics
+                filtered_df_hydrophobic = df_dropped[df_dropped["itype"] == 'hydrophobic']
+                with open(self.out_files + "/" + "hydrophobics", 'a') as file:
+                    filtered_df_hydrophobic.to_csv(file, header=False, index=False, sep="\t")
+
+                filtered_df_hbond = df_dropped[df_dropped["itype"] == 'hbond']
+                with open(self.out_files + "/" + "hbonds", 'a') as file:
+                    filtered_df_hbond.to_csv(file, header=False, index=False, sep="\t")
+
+                filtered_df_ionic = df_dropped[df_dropped["itype"] == 'ionic']
+                with open(self.out_files + "/" + "ionics", 'a') as file:
+                    filtered_df_ionic.to_csv(file, header=False, index=False, sep="\t")
+    
+    def frequency_graph(self, interact_type): #valid interact types: hydrophobic, ionics, hbonds
+
+        b=pd.read_csv(self.out_files+"/"+ interact_type, sep="\t", header=None) #
+        b.columns = ["itype", "chain_a", "chain_b", "resname_a", "resname_b", "resid_a", "resid_b" ]
+        b["resname_a"] = b["resname_a"].astype(str) + b["chain_a"].astype(str) + b["resid_a"].astype(str)
+        b["resname_b"] = b["resname_b"].astype(str) + b["chain_b"].astype(str) + b["resid_b"].astype(str)
+
+
+        #Intermonomer interactions
+        b_inter = b.loc[((b["chain_a"] == "A") & (b["chain_b"] == "C")) | ((b["chain_a"] == "C") & (b["chain_b"] == "A")) ]
+
+        #Pairwise interactions
+        b_inter['pairwise'] = b_inter['resname_a'].str.cat(b_inter['resname_b'],sep="-")
+
+        #interaction freqs
+        b_inter['aa_freq'] = b_inter.groupby('resname_a')['resname_a'].transform('count')
+        b_inter['nuc_freq'] = b_inter.groupby('resname_b')['resname_b'].transform('count')
+        b_inter['all_freq'] = b_inter.groupby('itype')['itype'].transform('count')
+        b_inter['pair_freq'] = b_inter.groupby('pairwise')['pairwise'].transform('count') / 4 #over 4 reps
+        b_inter['pair'] = b_inter.groupby('pairwise')['pairwise'].transform('count')
+        b_inter['freq'] = (b_inter['pair'] / 200) * 100
+
+        #print(b_inter)
+
+        b_inter_sorted=b_inter.sort_values(('freq') , ascending=False)
+
+        #setting colors
+        colors = "Blues_r";
+        if interact_type == "ionics":
+            colors = "Reds_r"
+
+        if interact_type == "hbonds":
+            colors = "Greens_r"
+
+        plt.figure(figsize=(13,8))
+        ax = sns.barplot(x="pairwise", y="freq", palette=colors, data=b_inter_sorted)
+        plt.xticks(rotation='vertical')
+
+
+        plt.xticks(fontsize=13, fontweight='bold')
+        plt.yticks(fontsize=10, fontweight='bold')
+        plt.ylim(ymax = 100)
+        plt.xlabel('Interactions',  fontweight='bold')
+        plt.ylabel('Percentage of ' + interact_type[:-1] + ' interactions', fontweight='bold')
+        plt.title('General '  + interact_type[:-1] + ' interaction profile of 1JPS for Chain A-C Interaction',  fontweight='bold')
+
+
+        plt.savefig(os.getcwd() + '/' + sys.argv[1] +"/general-" + interact_type +"-pairwise.png",dpi=300, bbox_inches="tight", format="png")
+
+        return b_inter
+
 
 
 def main():
@@ -160,6 +242,10 @@ def main():
     df = s.interfacea_to_df()
     dataset = df_to_dataset(df)
     save_dataset(dataset, df)
+    s.merged_interactions()
+    b_inter = s.frequency_graph("ionics")
+    b_inter = s.frequency_graph("hydrophobics")
+    b_inter = s.frequency_graph("hbonds")
 
 
 if __name__ == "__main__":
