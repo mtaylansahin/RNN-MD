@@ -73,7 +73,7 @@ python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio
 ```
 If you want to play with parameters, you should enter them as a string. These parameters can either be a single value or a range formatted as [start, stop, step]. Example usage is given following:
 ```
-python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.9 --dropout "[0.4]" --train_epochs "[10, 100, 10]"
+python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.9 --dropout "0.4" --train_epochs "[10, 100, 10]"
 ```
 
 If you are working on an HPC, you must use a slurm file to run the script. Example file is given below:
