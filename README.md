@@ -70,11 +70,11 @@ python RNN-MD.py --data_dir <Interaction_data_dir> --replica <Replica_number> --
 ```
 You can find an example usage of RNN-MD.py following:
 ```
-python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1
+python RNN-MD.py --data_dir test-run --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1
 ```
 If you want to play with parameters, you should enter them as a string. These parameters can either be a single value or a range formatted as [start, stop, step]. Example usage is given following:
 ```
-python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1 --dropout "0.4" --train_epochs "[10, 100, 10]"
+python RNN-MD.py --data_dir test-run --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1 --dropout "0.4" --train_epochs "[10, 100, 10]"
 ```
 
 If you are working on an HPC, you must use a slurm file to run the script. Example file is given below:
@@ -90,7 +90,7 @@ If you are working on an HPC, you must use a slurm file to run the script. Examp
 #SBATCH --error=vis_%j.err
 module load cuda92/toolkit/9.2.88
 # Run main.py script with the desired arguments
-srun python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1
+srun python RNN-MD.py --data_dir test-run --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1
 exit
 ```
 
@@ -105,7 +105,7 @@ python format.py [input_folder] [atomic/residue] [replica_no] [chain 1] [chain 2
 
 ```
 python model_train.py --dropout [dropout] --learning_rate [learning rate] --batch_size [batch size] --pretrain_epochs [pretrain epochs] --train_epochs [train epochs] --n_hidden [number of hidden] your_file_name_here
-python result.py --input_dir [where is inputs (eg.RE-Net/data/1JPS)] --output_dir [where is output move (eg. results/1JPS_results_kg4fsd) --ouput_file_dir (eg. results/1JPS_results_kg4fsd/1JPS_prediction_set_1.txt)]
+python result.py --input_dir [where is inputs (eg.RE-Net/data/test-run)] --output_dir [where is output move (eg. results/test-run_results_kg4fsd) --ouput_file_dir (eg. results/test-run_results_kg4fsd/test-run_prediction_set_1.txt)]
 ```
 
 * If you are working on an HPC you must use slurm file to run individual scripts. Example file is given below: 
@@ -124,9 +124,9 @@ python result.py --input_dir [where is inputs (eg.RE-Net/data/1JPS)] --output_di
 
 module load cuda92/toolkit/9.2.88
 
-srun python format.py 1JPS residue 1 A C 0.8 0.1
-srun python model_train.py --dropout 0.5 --learning_rate 0.001 --batch_size 128 --pretrain_epochs 10 --train_epochs 30 --n_hidden 100 1JPS
-srun python result.py --input_dir RE-Net/data/1JPS --output_dir results/1JPS_results_kg4fsd --ouput_file_dir results/1JPS_results_kg4fsd/1JPS_prediction_set_1.txt
+srun python format.py test-run residue 1 A C 0.8 0.1
+srun python model_train.py --dropout 0.5 --learning_rate 0.001 --batch_size 128 --pretrain_epochs 10 --train_epochs 30 --n_hidden 100 test-run
+srun python result.py --input_dir RE-Net/data/test-run --output_dir results/test-run_results_kg4fsd --ouput_file_dir results/test-run_results_kg4fsd/test-run_prediction_set_1.txt
  
 exit
 ```
