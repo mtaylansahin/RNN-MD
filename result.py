@@ -582,12 +582,12 @@ def main():
 
     bubble_heatmap_output = pd.concat([test_bubble, output_bubble])
 
-    fig = px.scatter(bubble_heatmap_output, x="chain_b", y="chain_a",
+    fig = px.scatter(bubble_heatmap_output, x="residue_b", y="residue_a",
                 size="freq", color="type", size_max=30, opacity=0.6, color_discrete_map={'ACTUAL TEST DATA':'red','PREDICTED DATA':'lightblue'})
 
     fig.update_layout(title="Buble heatmap of ground truth and predicted test set",
-                    yaxis_nticks=len(bubble_heatmap_output["chain_a"]),xaxis_nticks=len(bubble_heatmap_output["chain_b"]),
-                    height =len(bubble_heatmap_output["chain_a"])*15)
+                    yaxis_nticks=len(bubble_heatmap_output["residue_a"]),xaxis_nticks=len(bubble_heatmap_output["residue_b"]),
+                    height =len(bubble_heatmap_output["residue_a"])*15)
     fig.update_layout(barmode='stack')
     fig.update_xaxes(categoryorder='category ascending',title='First Chain')
     fig.update_yaxes(categoryorder='category ascending',title='Second Chain')
