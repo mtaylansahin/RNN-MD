@@ -456,9 +456,31 @@ def main():
 
     unique_rows_filtered_df_split_sorted = filtered_df_split_sorted[~filtered_df_split_sorted["pair"].isin(predicted_sorted["pair"])]
 
+    filtered_df_split_sorted_heatmap = filtered_df_split.sort_values(by="residue_a")
+    filtered_df_split_sorted_heatmap['freq'] = filtered_df_split_sorted_heatmap['freq'].round().astype(int)
+
     res_merg_split = pd.merge(filtered_df_split_sorted, predicted_sorted, how='outer')
     res = res_merg_split[['residue_a', 'residue_b', 'pair']]
     res_drop = res.drop_duplicates()
+
+    res_merg_split_heatmap = pd.merge(filtered_df_split_sorted_heatmap, predicted_sorted,how='outer')
+    res_heatmap = res_merg_split_heatmap[['residue_a', 'residue_b','pair']]
+    res_drop_heatmap = res_heatmap.drop_duplicates()
+
+    res_merg_ground_truth_heatmap = pd.merge(res_drop_heatmap, filtered_df_split_sorted_heatmap,how='outer')
+    res_merg_predicted_heatmap = pd.merge(res_drop_heatmap, predicted_sorted,how='outer')
+
+    res_merg_ground_truth_heatmap['numeric_order'] = res_merg_ground_truth_heatmap['residue_a'].apply(lambda x: int(x.split('-')[0]) if x.split('-')[0].isdigit() else float('inf'))
+    res_merg_ground_truth_sorted_heatmap = res_merg_ground_truth_heatmap.sort_values(by='numeric_order', ascending=True)
+
+    res_merg_predicted_heatmap['numeric_order'] = res_merg_predicted_heatmap['residue_a'].apply(lambda x: int(x.split('-')[0]) if x.split('-')[0].isdigit() else float('inf'))
+    res_merg_predicted_sorted_heatmap = res_merg_predicted_heatmap.sort_values(by='numeric_order', ascending=True)
+
+    test_pivot_heatmap = pd.pivot_table(res_merg_ground_truth_sorted_heatmap,index='residue_a', columns='residue_b', values='freq', aggfunc='sum', fill_value=0)
+    predicted_sorted_pivot_heatmap = pd.pivot_table(res_merg_predicted_sorted_heatmap,index='residue_a', columns='residue_b', values='freq', aggfunc='sum', fill_value=0)
+
+    test_pivot_sorted_heatmap = test_pivot_heatmap.reindex(res_merg_ground_truth_sorted_heatmap['residue_a'].unique())
+    predicted_pivot_sorted_heatmap = predicted_sorted_pivot_heatmap.reindex(res_merg_predicted_sorted_heatmap['residue_a'].unique())
 
     merged_df_filtered = pd.concat([unique_rows_filtered_df_split_sorted, predicted_sorted], axis=0)
     merged_df_filtered.fillna("Predicted_Set", inplace=True)
@@ -523,7 +545,7 @@ def main():
     fig, axes = plt.subplots(1, 2, figsize=(20, 10))
 
     # Plot the first heatmap
-    ax1 = sns.heatmap(test_pivot_sorted_pivot_new, ax=axes[0], cmap='Blues',linewidths=0.5, linecolor='gray',annot_kws={"weight": "bold","size":14},vmin=vmin, vmax=vmax,annot=True,fmt=".0f")
+    ax1 = sns.heatmap(test_pivot_sorted_heatmap, ax=axes[0], cmap='Blues',linewidths=0.5, linecolor='gray',annot_kws={"weight": "bold","size":14},vmin=vmin, vmax=vmax,annot=True,fmt=".0f")
     axes[0].set_title('Ground Truth Interactions', size=20, weight="bold")
     axes[0].set_xlabel('TF', size=20, weight="bold")
     axes[0].set_ylabel("")
@@ -533,11 +555,11 @@ def main():
             t.set_text(t.get_text()) #if the value is greater than 0 then I set the text 
         else:
             t.set_text("") # if not it sets an empty text
-    ax1.set_yticklabels(test_pivot_sorted_pivot_new.index, size = 15, weight="bold")
-    ax1.set_xticklabels(test_pivot_sorted_pivot_new.columns, size = 15, weight="bold")
+    ax1.set_yticklabels(test_pivot_sorted_heatmap.index, size = 15, weight="bold")
+    ax1.set_xticklabels(test_pivot_sorted_heatmap.columns, size = 15, weight="bold")
 
     # Plot the second heatmap
-    ax2 = sns.heatmap(predicted_sorted_pivot_pivot_new, ax=axes[1],yticklabels=False, cmap='Purples',linewidths=0.5, linecolor='gray',vmin=vmin, vmax=vmax,annot=True,fmt=".0f",annot_kws={"weight": "bold","size":14})
+    ax2 = sns.heatmap(predicted_pivot_sorted_heatmap, ax=axes[1],yticklabels=False, cmap='Purples',linewidths=0.5, linecolor='gray',vmin=vmin, vmax=vmax,annot=True,fmt=".0f",annot_kws={"weight": "bold","size":14})
     axes[1].set_title('Predicted Interactions', size=20, weight="bold")
     axes[1].set_xlabel('TF', size=20, weight="bold")
     axes[1].set_ylabel("")
@@ -549,7 +571,7 @@ def main():
             t.set_text("") # if not it sets an empty text
             
     #ax2.set_yticklabels(predicted_160_20_20_sorted_pivot.index, size = 15, weight="bold")
-    ax2.set_xticklabels(predicted_sorted_pivot_pivot_new.columns, size = 15, weight="bold")
+    ax2.set_xticklabels(predicted_pivot_sorted_heatmap.columns, size = 15, weight="bold")
     # Add colorbars to each heatmap
     cbar1 = axes[0].collections[0].colorbar
     cbar2 = axes[1].collections[0].colorbar
