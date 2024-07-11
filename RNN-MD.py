@@ -193,5 +193,5 @@ if __name__ == "__main__":
                             os.makedirs(results_dir, exist_ok=True)
                             model_trainer.test(n_hidden, dropout, learning_rate, train_epoch, batch_size, run_id, results_dir)
                             # Call the result script's main function
-                            os.system(f"python result.py --input_dir {data_dir_path} --output_dir {results_dir} --output_file_dir {os.path.join(results_dir, f"{args.data_dir}_prediction_set_{run_id}.txt")}")
+                            os.system(f"python result.py --input_dir {data_dir_path} --output_dir {results_dir} --output_file_dir {os.path.join(results_dir, f'{args.data_dir}_prediction_set_{run_id}.txt')}")
                             run_id += 1
