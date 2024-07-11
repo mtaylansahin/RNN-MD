@@ -25,7 +25,8 @@ def save_dataset(dataset, df):
     #test = dataset[len(train) + len(valid): len(train) + len(valid) + math.ceil(len(dataset) * 0.1)]
     last_time = np.max(dataset['time'])
     time_split_train = last_time * float(sys.argv[6])
-    time_split_valid = last_time * float(sys.argv[7])
+    valid_ratio = 1 - float(sys.argv[7])
+    time_split_valid = last_time * valid_ratio
     train = dataset[dataset['time'] <= time_split_train]
     valid = dataset[(dataset['time'] > time_split_train) & (dataset['time'] <= time_split_valid)]
     test = dataset[dataset['time'] > time_split_valid]

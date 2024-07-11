@@ -33,6 +33,8 @@ Initially, trajectory and topology data are used to generate an MD ensemble, cap
 
 ## Installation
 
+**RNN-MD works on computers with an NVIDIA GPU. Otherwise, you will encounter an error.**
+
 Clone the repository
 ```
 git clone https://github.com/mehdikosaca/RNN-MD.git
@@ -69,11 +71,11 @@ python RNN-MD.py --data_dir <Interaction_data_dir> --replica <Replica_number> --
 ```
 You can find an example usage of RNN-MD.py following:
 ```
-python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.9
+python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1
 ```
 If you want to play with parameters, you should enter them as a string. These parameters can either be a single value or a range formatted as [start, stop, step]. Example usage is given following:
 ```
-python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.9 --dropout "0.4" --train_epochs "[10, 100, 10]"
+python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1 --dropout "0.4" --train_epochs "[10, 100, 10]"
 ```
 
 If you are working on an HPC, you must use a slurm file to run the script. Example file is given below:
@@ -90,7 +92,7 @@ module load cuda92/toolkit/9.2.88
 source activate RNN-MD
 
 # Run main.py script with the desired arguments
-srun python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.9 --train_epochs "[10, 50, 10]"
+srun python RNN-MD.py --data_dir 1JPS --replica 1 --chain1 A --chain2 C --train_ratio 0.8 --valid_ratio 0.1 --train_epochs "[10, 50, 10]"
 
 exit
 ```
@@ -125,7 +127,7 @@ python result.py --input_dir [where is inputs (eg.RE-Net/data/1JPS)] --output_di
 
 module load cuda92/toolkit/9.2.88
 
-srun python format.py 1JPS residue 1 A C 0.8 0.9
+srun python format.py 1JPS residue 1 A C 0.8 0.1
 srun python model_train.py --dropout 0.5 --learning_rate 0.001 --batch_size 128 --pretrain_epochs 10 --train_epochs 30 --n_hidden 100 1JPS
 srun python result.py --input_dir RE-Net/data/1JPS --output_dir results/1JPS_results_kg4fsd --ouput_file_dir results/1JPS_results_kg4fsd/1JPS_prediction_set_1.txt
  
