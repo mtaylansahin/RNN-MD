@@ -16,8 +16,6 @@ Initially, trajectory and topology data are used to generate an MD ensemble, cap
 ## System Dependencies
 * [RE-Net](https://github.com/INK-USC/RE-Net)
 * conda 
-* pymol
-
 
 ## Python Dependencies
 * numpy
@@ -100,7 +98,7 @@ exit
 
 ### Usage of Individual Scripts
 
-* The `format.py` script takes interface outputs as inputs to generates *train.txt*, *valid.txt*, *test.txt*, *stat.txt* files according to you specified train and valid ratios. Example usage is following:
+* The `format.py` script takes interface outputs as inputs to generates *train.txt*, *valid.txt*, *test.txt*, *stat.txt* files in [RNN-MD format](#dataset-formatting) according to you specified train and valid ratios. Example usage is following:
 
 ```
 python format.py [input_folder] [atomic/residue] [replica_no] [chain 1] [chain 2] [train_ratio] [valid_ratio]
@@ -160,7 +158,7 @@ exit
 * **Metadata:** The Metadata includes brief information about which RNN-MD parameters are used to generate the predictions.
 
 ## Dataset Formatting
-We have used two formats (**atomic and residue**) to represent interactions using `format.py` according to RE-Net input format.
+We have used residue format to represent the interactions using `format.py` according to RE-Net input format.
 In both descriptions relations were set as the interaction types: hydrophobic, ionic and hydrogen bonding. 
 Labels for interaction types were <span style="color:green">0: hbond</span>, <span style="color:blue">1: hydrophobic</span>, <span style="color:red">2: ionic</span>.
 
@@ -171,6 +169,9 @@ example :
 | Subject| relation  | object | time stamp |
 | :---:   | :-: | :-: | :---:  |
 | 48|	2	|287	|200.0|
+| 52|	0	|8	|200.0|
+|  1|	1	|15	|200.0|
+|  68|	1	|32	|200.0|
 .       .    .          .
 .       .    .          .
 .       .    .          .

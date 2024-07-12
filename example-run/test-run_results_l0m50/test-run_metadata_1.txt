@@ -1,0 +1,8 @@
+Parameters for ../results/test-run_results_l0m50/test-run_prediction_set_1.txt:
+data_dir: test-run
+dropout: 0.5
+n_hidden: 100
+learning_rate: 0.001
+pretraining_epochs: 30
+train_epochs: 10
+batch_size: 128

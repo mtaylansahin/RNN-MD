@@ -1,0 +1,3 @@
+Sum of matrix: 339
+Length of positive numbers: 48
+Score: 7.0625

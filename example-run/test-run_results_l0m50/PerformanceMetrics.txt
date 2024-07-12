@@ -1,0 +1,4 @@
+Performance metrics for commons
+Recall: 0.46, Precision: 0.71, TPR: 0.46, FPR: 0.01, F1: 0.56, MCC: 0.56
+Performance Metrics for uncommons:
+Recall: 0.23, Precision: 0.57, TPR: 0.23, FPR: 0.00, F1: 0.33, MCC: 0.36
