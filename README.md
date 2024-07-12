@@ -60,6 +60,10 @@ Or you can directly run for quick installation of RNN-MD.
 chmod +x setup.sh
 ./setup.sh
 ```
+and do not forget to activate conda environment
+```
+conda activate RNN-MD
+```
 
 ## Usage
 
