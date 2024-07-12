@@ -24,7 +24,7 @@ def parse_arguments():
     parser.add_argument('--batch_size', type=str, default="128", help='Batch size for training. Can be a single value or a range in the format [start, stop, step].')
     parser.add_argument('--pretrain_epochs', type=str, default="30", help='Number of epochs for pre-training. Can be a single value or a range in the format [start, stop, step].')
     parser.add_argument('--train_epochs', type=str, default="10", help='Number of epochs for training. Can be a single value or a range in the format [start, stop, step].')
-    parser.add_argument('--n_hidden', default="200", type=str, help='Number of hidden units in the hidden layer. Can be a single value or a range in the format [start, stop, step].')
+    parser.add_argument('--n_hidden', default="100", type=str, help='Number of hidden units in the hidden layer. Can be a single value or a range in the format [start, stop, step].')
 
     # Parse arguments
     args = parser.parse_args()
@@ -95,7 +95,7 @@ class ModelTrainTest:
         finally:
             os.chdir(current_dir)
 
-    def test(self, n_hidden, dropout, learning_rate, train_epochs, batch_size, run_id, results_dir):
+    def test(self, n_hidden, dropout, learning_rate, train_epochs, batch_size, run_id, results_dir, pretrain_epoch):
         current_dir = os.getcwd()
         try:
             os.chdir(os.path.join(current_dir, 'RE-Net'))
@@ -110,6 +110,7 @@ class ModelTrainTest:
                 f.write(f"dropout: {dropout}\n")
                 f.write(f"n_hidden: {n_hidden}\n")
                 f.write(f"learning_rate: {learning_rate}\n")
+                f.write(f"pretraining_epochs: {pretrain_epoch}\n")
                 f.write(f"train_epochs: {train_epochs}\n")
                 f.write(f"batch_size: {batch_size}\n")
             # Move metadata file to the results directory
@@ -194,7 +195,7 @@ if __name__ == "__main__":
                             hex_id = generate_hex_id()
                             results_dir = os.path.join(results_base_dir, f"{args.data_dir}_results_{hex_id}")
                             os.makedirs(results_dir, exist_ok=True)
-                            model_trainer.test(n_hidden, dropout, learning_rate, train_epoch, batch_size, run_id, results_dir)
+                            model_trainer.test(n_hidden, dropout, learning_rate, train_epoch, batch_size, run_id, results_dir, pretrain_epoch)
                             results_dir_actual  = os.path.join("results", f"{args.data_dir}_results_{hex_id}")
                             # Call the result script's main function
                             os.system(f"python result.py --input_dir {data_dir_path} --output_dir {results_dir_actual} --output_file_dir {os.path.join(results_dir_actual, f'{args.data_dir}_prediction_set_{run_id}.txt')}")

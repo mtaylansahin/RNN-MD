@@ -148,7 +148,7 @@ def main():
 
     # Load train.txt from input directory
     train_path = os.path.join(input_dir, 'train.txt')
-    train_set = pd.read_table(test_path, delim_whitespace=True, header=None)
+    train_set = pd.read_table(train_path, delim_whitespace=True, header=None)
     train_set.columns = ['subject', 'relation', 'object', 'time_stamp']   
     
     # Load output file from output file directory
@@ -206,12 +206,13 @@ def main():
     train_set_post_process['subject'] = train_set_post['subject_name']
     train_set_post_process['object'] = train_set_post['obj_name']
     train_set_post_process['time_stamp'] = train_set_post['time_stamp']
-
     train_set_post_process['type'] = "TRAIN SET"
     train_set_post_process['pair'] = train_set_post_process[['subject', 'object']].agg('-'.join, axis=1)
 
     train_set_post['freq_count'] = train_set_post.groupby('pair')['pair'].transform('count')
-    a = train_set_post.loc[train_set_post['freq_count'] <= 50 ]
+    last_time = np.max(train_set_post['time_stamp'])
+    train_time_thrashold = last_time / 2
+    a = train_set_post.loc[train_set_post['freq_count'] <= train_time_thrashold ]
     sol = len(a["subject"].unique())
     ool = len(a["object"].unique())
     total_threshold = sol * ool
@@ -308,39 +309,39 @@ def main():
 
     # Prediction performances of uncommon interaction
 
-    drop_duplicate_output = predicted_filtered.drop_duplicates().reset_index(drop=True)
-    drop_duplicate_test = test_filtered.drop_duplicates().reset_index(drop=True)
+    drop_duplicate_output_un = predicted_filtered.drop_duplicates().reset_index(drop=True)
+    drop_duplicate_test_un = test_filtered.drop_duplicates().reset_index(drop=True)
 
-    so = drop_duplicate_output["subject"].to_list()
-    oo = drop_duplicate_output["object"].to_list()
-    to = drop_duplicate_output["time_stamp"].to_list()
+    so_un = drop_duplicate_output_un["subject"].to_list()
+    oo_un = drop_duplicate_output_un["object"].to_list()
+    to_un = drop_duplicate_output_un["time_stamp"].to_list()
 
-    st = drop_duplicate_test["subject"].to_list()
-    ot = drop_duplicate_test["object"].to_list()
-    tt = drop_duplicate_test["time_stamp"].to_list()
+    st_un = drop_duplicate_test_un["subject"].to_list()
+    ot_un = drop_duplicate_test_un["object"].to_list()
+    tt_un = drop_duplicate_test_un["time_stamp"].to_list()
 
     triplet_ot = []
     triplet_tt = []
 
-    for i in range(0,len(so)):
-        triplet_ot.append(str(so[i])+str(oo[i])+str(to[i]))
+    for i in range(0,len(so_un)):
+        triplet_ot.append(str(so_un[i])+str(oo_un[i])+str(to_un[i]))
 
-    for i in range(0,len(st)):
-        triplet_tt.append(str(st[i])+str(ot[i])+str(tt[i]))
+    for i in range(0,len(st_un)):
+        triplet_tt.append(str(st_un[i])+str(ot_un[i])+str(tt_un[i]))
         
-    TP = len(set(triplet_ot) & set(triplet_tt))
-    FP = len(set(triplet_ot) - set(triplet_tt))
-    FN = len(set(triplet_tt) - set(triplet_ot))
-    TN = total_threshold * time_points - (TP + FP + FN)
+    TP_un = len(set(triplet_ot) & set(triplet_tt))
+    FP_un = len(set(triplet_ot) - set(triplet_tt))
+    FN_un = len(set(triplet_tt) - set(triplet_ot))
+    TN_un = total_threshold * time_points - (TP_un + FP_un + FN_un)
 
-    Recall = TP / (TP + FN)
-    Precision = TP / (TP + FP)
-    TPR = TP / (TP + FN)
-    FPR = FP / (FP + TN)
+    Recall_un = TP_un / (TP_un + FN_un)
+    Precision_un = TP_un / (TP_un + FP_un)
+    TPR_un = TP_un / (TP_un + FN_un)
+    FPR_un = FP_un / (FP_un + TN_un)
 
-    F1 = 2 * ((Precision * Recall) / (Precision + Recall))
-    MCC = (TP*TN - FP*FN) / ((TP+FP)*(TP+FN)*(TN+FP)*(TN+FN))**(1/2)
-    print("Performance Metrics for uncommons: Recall: {:.2f}, Precision: {:.2f}, TPR: {:.2f}, FPR: {:.2f}, F1: {:.2f}, MCC: {:.2f}".format(Recall,Precision,TPR,FPR,F1,MCC),file=scores)
+    F1_un = 2 * ((Precision_un * Recall_un) / (Precision_un + Recall_un))
+    MCC_un = (TP_un*TN_un - FP_un*FN_un) / ((TP_un+FP_un)*(TP_un+FN_un)*(TN_un+FP_un)*(TN_un+FN_un))**(1/2)
+    print("Performance Metrics for uncommons:\nRecall: {:.2f}, Precision: {:.2f}, TPR: {:.2f}, FPR: {:.2f}, F1: {:.2f}, MCC: {:.2f}".format(Recall_un,Precision_un,TPR_un,FPR_un,F1_un,MCC_un),file=scores)
     scores.close()
     shutil.move("PerformanceMetrics.txt",output_dir)
 
