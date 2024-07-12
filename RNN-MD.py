@@ -162,12 +162,12 @@ if __name__ == "__main__":
     time.sleep(2)
 
     # Copy all .txt files and the get_history_graph.py script from the input data_dir to the new data_dir
-    copy_txt_files(args.data_dir, data_dir_path)
 
     try:
         result = subprocess.run([sys.executable, format_script_path] + format_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print(result.stdout.decode('utf-8'))
         print(result.stderr.decode('utf-8'))
+        copy_txt_files(args.data_dir, data_dir_path)
     except subprocess.CalledProcessError as e:
         print(f"An error occurred while running format.py: {e}")
         print(e.stdout.decode('utf-8'))
