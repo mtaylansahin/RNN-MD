@@ -54,6 +54,8 @@ def train(args):
     with open('./data/' + args.dataset + '/train_graphs.txt', 'rb') as f:
         graph_dict = pickle.load(f)
 
+    graph_dict = {k: g.to('cuda:0') for k, g in graph_dict.items()}
+
     true_prob_s, true_prob_o = utils.get_true_distribution(train_data, num_nodes)
 
     epoch = 0

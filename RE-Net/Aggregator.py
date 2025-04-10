@@ -51,8 +51,8 @@ class RGCNAggregator_global(nn.Module):
             g_list.append(graph_dict[tim.item()])
 
         batched_graph = dgl.batch(g_list)
+        batched_graph = batched_graph.to(torch.device('cuda:' + str(torch.cuda.current_device())))
         batched_graph.ndata['h'] = ent_embeds[batched_graph.ndata['id']].view(-1, ent_embeds.shape[1])
-        move_dgl_to_cuda(batched_graph)
         self.rgcn1(batched_graph, reverse)
         self.rgcn2(batched_graph, reverse)
         if self.maxpool == 1:
@@ -67,6 +67,7 @@ class RGCNAggregator_global(nn.Module):
                 embed_seq_tensor[i, j, :] = global_info[time_to_idx[t.item()]]
 
         embed_seq_tensor = self.dropout(embed_seq_tensor)
+        len_non_zero = torch.LongTensor(len_non_zero).cpu()  # Ensure lengths are on CPU
         packed_input = torch.nn.utils.rnn.pack_padded_sequence(embed_seq_tensor,
                                                                len_non_zero,
                                                                batch_first=True)
@@ -86,16 +87,13 @@ class RGCNAggregator_global(nn.Module):
         else:
             timess = torch.LongTensor(times[:id])
 
-
         g_list = []
-
         for tim in timess:
-            move_dgl_to_cuda(graph_dict[tim.item()])
             g_list.append(graph_dict[tim.item()])
 
         batched_graph = dgl.batch(g_list)
+        batched_graph = batched_graph.to(torch.device('cuda:' + str(torch.cuda.current_device())))
         batched_graph.ndata['h'] = ent_embeds[batched_graph.ndata['id']].view(-1, ent_embeds.shape[1])
-        move_dgl_to_cuda(batched_graph)
         self.rgcn1(batched_graph, reverse)
         self.rgcn2(batched_graph, reverse)
         if self.maxpool == 1:

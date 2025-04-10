@@ -129,7 +129,7 @@ class Format:
                                                 names=['itype', 'chain_a', 'chain_b', 'resname_a', 'resname_b',
                                                        'resid_a',
                                                        'resid_b', 'atom_a', 'atom_b'], sep="\s+")
-            df = df.append(interfacea_file)
+            df = df._append(interfacea_file)
             times = np.hstack([times, np.repeat(time_stamp, len(interfacea_file))])
 
         df['time_stamp'] = times
