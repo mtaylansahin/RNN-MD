@@ -11,8 +11,9 @@ import pickle
 
 def train(args):
     # load data
-    num_nodes, num_rels = utils.get_total_number('./data/' + args.dataset, 'stat.txt')
-    train_data, train_times_origin = utils.load_quadruples('./data/' + args.dataset, 'train.txt')
+    num_nodes, num_rels_original = utils.get_total_number('./data/' + args.dataset, 'stat.txt')
+    num_rels = num_rels_original * 2 # Double the relations for inverse
+    train_data, train_times_origin = utils.load_quadruples('./data/' + args.dataset, 'train.txt', num_rels_original)
 
     # check cuda
     use_cuda = args.gpu >= 0 and torch.cuda.is_available()
@@ -39,7 +40,7 @@ def train(args):
     print("start training...")
     model = RENet_global(num_nodes,
                   args.n_hidden,
-                  num_rels,
+                  num_rels, # Use the doubled number of relations
                   dropout=args.dropout,
                   model=args.model,
                   seq_len=args.seq_len,

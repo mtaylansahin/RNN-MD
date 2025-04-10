@@ -12,7 +12,7 @@ def get_total_number(inPath, fileName):
             return int(line_split[0]), int(line_split[1])
 
 
-def load_quadruples(inPath, fileName, fileName2=None, fileName3=None):
+def load_quadruples(inPath, fileName, num_original_rels, fileName2=None, fileName3=None):
     with open(os.path.join(inPath, fileName), 'r') as fr:
         quadrupleList = []
         times = set()
@@ -23,6 +23,8 @@ def load_quadruples(inPath, fileName, fileName2=None, fileName3=None):
             rel = int(line_split[1])
             time = int(line_split[3])
             quadrupleList.append([head, rel, tail, time])
+            # Add inverse relation
+            quadrupleList.append([tail, rel + num_original_rels, head, time])
             times.add(time)
         # times = list(times)
         # times.sort()
@@ -35,6 +37,8 @@ def load_quadruples(inPath, fileName, fileName2=None, fileName3=None):
                 rel = int(line_split[1])
                 time = int(line_split[3])
                 quadrupleList.append([head, rel, tail, time])
+                # Add inverse relation
+                quadrupleList.append([tail, rel + num_original_rels, head, time])
                 times.add(time)
 
     if fileName3 is not None:
@@ -46,6 +50,8 @@ def load_quadruples(inPath, fileName, fileName2=None, fileName3=None):
                 rel = int(line_split[1])
                 time = int(line_split[3])
                 quadrupleList.append([head, rel, tail, time])
+                # Add inverse relation
+                quadrupleList.append([tail, rel + num_original_rels, head, time])
                 times.add(time)
     times = list(times)
     times.sort()

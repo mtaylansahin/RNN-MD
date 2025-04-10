@@ -12,17 +12,18 @@ import pickle
 
 def train(args):
     # load data
-    num_nodes, num_rels = utils.get_total_number('./data/' + args.dataset, 'stat.txt')
+    num_nodes, num_rels_original = utils.get_total_number('./data/' + args.dataset, 'stat.txt')
+    num_rels = num_rels_original * 2 # Double the relations for inverse
     if args.dataset == 'icews_know':
-        train_data, train_times = utils.load_quadruples('./data/' + args.dataset, 'train.txt')
-        valid_data, valid_times = utils.load_quadruples('./data/' + args.dataset, 'test.txt')
-        test_data, test_times = utils.load_quadruples('./data/' + args.dataset, 'test.txt')
-        total_data, total_times = utils.load_quadruples('./data/' + args.dataset, 'train.txt', 'test.txt')
+        train_data, train_times = utils.load_quadruples('./data/' + args.dataset, 'train.txt', num_rels_original)
+        valid_data, valid_times = utils.load_quadruples('./data/' + args.dataset, 'test.txt', num_rels_original)
+        test_data, test_times = utils.load_quadruples('./data/' + args.dataset, 'test.txt', num_rels_original)
+        total_data, total_times = utils.load_quadruples('./data/' + args.dataset, 'train.txt', num_rels_original, 'test.txt')
     else:
-        train_data, train_times = utils.load_quadruples('./data/' + args.dataset, 'train.txt')
-        valid_data, valid_times = utils.load_quadruples('./data/' + args.dataset, 'valid.txt')
-        test_data, test_times = utils.load_quadruples('./data/' + args.dataset, 'test.txt')
-        total_data, total_times = utils.load_quadruples('./data/' + args.dataset, 'train.txt', 'valid.txt','test.txt')
+        train_data, train_times = utils.load_quadruples('./data/' + args.dataset, 'train.txt', num_rels_original)
+        valid_data, valid_times = utils.load_quadruples('./data/' + args.dataset, 'valid.txt', num_rels_original)
+        test_data, test_times = utils.load_quadruples('./data/' + args.dataset, 'test.txt', num_rels_original)
+        total_data, total_times = utils.load_quadruples('./data/' + args.dataset, 'train.txt', num_rels_original, 'valid.txt', 'test.txt')
 
     # check cuda
     use_cuda = args.gpu >= 0 and torch.cuda.is_available()
@@ -44,7 +45,7 @@ def train(args):
     print("start training...")
     model = RENet(num_nodes,
                     args.n_hidden,
-                    num_rels,
+                    num_rels, # Use the doubled number of relations
                     dropout=args.dropout,
                     model=args.model,
                     seq_len=args.seq_len,
@@ -52,7 +53,7 @@ def train(args):
 
     global_model = RENet_global(num_nodes,
                          args.n_hidden,
-                         num_rels,
+                         num_rels, # Use the doubled number of relations
                          dropout=args.dropout,
                          model=args.model,
                          seq_len=args.seq_len,
