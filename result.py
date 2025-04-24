@@ -358,9 +358,7 @@ def main():
     else:
         print("No common interactions found in test/predictions based on training threshold.\n", file=scores)
 
-    scores.close() # Close file
-    shutil.move(scores_file_path, output_dir) # Move file
-
+    scores.close()
 """
     df = pd.DataFrame(total_data, columns=['subject', 'relation', 'object', 'time_stamp'])
 
