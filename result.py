@@ -221,55 +221,119 @@ def main():
 
     test_filtered_common = test_set_post[test_set_post["pair"].isin(common_pairs_train)]
     predicted_filtered_common = output_post[output_post["pair"].isin(common_pairs_train)]
-    # --------------------------------------------------------
+    
+    # --- Generate BASELINE Predictions ---
+    # 1. Get unique interacting pairs from the entire training set
+    all_train_interaction_pairs = set(train_set_post['pair'].unique())
+    print(f"Baseline: Found {len(all_train_interaction_pairs)} unique interaction pairs in the training set.")
+
+    # 2. Get unique timestamps from the test set
+    test_timestamps = sorted(list(test_set_post['time_stamp'].unique()))
+    print(f"Baseline: Found {len(test_timestamps)} unique timestamps in the test set.")
+
+    # 3. Generate baseline predictions: all train pairs at all test times
+    baseline_preds_list = []
+    if not all_train_interaction_pairs or not test_timestamps:
+        print("Baseline: Cannot generate baseline predictions (no training pairs or no test timestamps).")
+        baseline_predictions_df = pd.DataFrame(columns=['subject_name', 'obj_name', 'pair', 'time_stamp']) # Empty DF
+    else:
+        for pair in all_train_interaction_pairs:
+            # Ensure pair splitting works even if residue names contain '_'
+            parts = pair.split('_')
+            subject_name = parts[0]
+            obj_name = '_'.join(parts[1:]) # Re-join if object name had '_'
+
+            # Basic check if splitting resulted in expected parts
+            if not subject_name or not obj_name:
+                 print(f"Warning: Skipping pair '{pair}' due to unexpected format.")
+                 continue
+
+            for ts in test_timestamps:
+                baseline_preds_list.append({
+                    'subject_name': subject_name,
+                    'obj_name': obj_name,
+                    'pair': pair,
+                    'time_stamp': ts
+                })
+        baseline_predictions_df = pd.DataFrame(baseline_preds_list)
+        # Ensure correct dtypes
+        baseline_predictions_df['time_stamp'] = baseline_predictions_df['time_stamp'].astype(int)
+        print(f"Baseline: Generated {len(baseline_predictions_df)} predictions.")
 
 
-    # Load raw data for total calculation (needed for TN)
-    with open(os.path.join(input_dir, "train.txt"), 'r') as fr:
-        train_data = []
-        for line in fr: train_data.append([int(x) for x in line.split()])
-    with open(os.path.join(input_dir, "valid.txt"), 'r') as fr:
-        valid_data = []
-        for line in fr: valid_data.append([int(x) for x in line.split()])
-    with open(os.path.join(input_dir, "test.txt"), 'r') as fr:
-        test_data = []
-        for line in fr: test_data.append([int(x) for x in line.split()])
-
+    # --- Load raw data for total calculation (needed for TN) ---
+    with open(os.path.join(input_dir, "train.txt"), 'r') as fr: train_data = [[int(x) for x in line.split()] for line in fr]
+    with open(os.path.join(input_dir, "valid.txt"), 'r') as fr: valid_data = [[int(x) for x in line.split()] for line in fr]
+    with open(os.path.join(input_dir, "test.txt"), 'r') as fr: test_data = [[int(x) for x in line.split()] for line in fr]
     total_data = train_data + valid_data + test_data
     s = [item[0] for item in total_data]
     o = [item[2] for item in total_data]
     unique_s = len(np.unique(s))
     unique_o = len(np.unique(o))
     total_possible_pairs_all = unique_o * unique_s
-    time_points = (test_set["time_stamp"].max()) - (test_set["time_stamp"].min()) + 1
+    time_points = len(test_timestamps)
+
 
     # --- Performance Calculation ---
     scores_file_path = os.path.join(output_dir, "PerformanceMetrics.txt")
     scores = open(scores_file_path,"w")
 
-    # Prediction performances of ALL interactions
-    print("--- Calculating Performance for ALL Interactions ---", file=scores)
-    drop_duplicate_output_all = output_post.drop_duplicates().reset_index(drop=True) # Use output_post directly
-    drop_duplicate_test_all = test_set_post.drop_duplicates().reset_index(drop=True) # Use test_set_post directly
+    # Use consistent ground truth for comparisons: deduplicated test_set_post
+    ground_truth_test_df = test_set_post.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True)
 
-    # Use named columns for clarity
-    so_all = drop_duplicate_output_all["subject_name"].astype(str).to_list()
-    oo_all = drop_duplicate_output_all["obj_name"].astype(str).to_list()
-    to_all = drop_duplicate_output_all["time_stamp"].astype(str).to_list()
+    # -- BASELINE Performance --
+    print("--- Calculating Performance for BASELINE (Predict all train pairs at all test times) ---", file=scores)
+    if not baseline_predictions_df.empty:
+        # Baseline predictions are already unique triplets by generation method
+        baseline_pred_triplets_df = baseline_predictions_df[['subject_name', 'obj_name', 'time_stamp']]
 
-    st_all = drop_duplicate_test_all["subject_name"].astype(str).to_list()
-    ot_all = drop_duplicate_test_all["obj_name"].astype(str).to_list()
-    tt_all = drop_duplicate_test_all["time_stamp"].astype(str).to_list()
+        # Prepare triplets for set operations (string format for simplicity)
+        st_base = ground_truth_test_df["subject_name"].astype(str).to_list()
+        ot_base = ground_truth_test_df["obj_name"].astype(str).to_list()
+        tt_base = ground_truth_test_df["time_stamp"].astype(str).to_list()
+        triplet_test_base = set([st_base[i] + '_' + ot_base[i] + '_' + tt_base[i] for i in range(len(st_base))])
 
-    triplet_pred_all = set([so_all[i] + '_' + oo_all[i] + '_' + to_all[i] for i in range(len(so_all))])
+        so_base = baseline_pred_triplets_df["subject_name"].astype(str).to_list()
+        oo_base = baseline_pred_triplets_df["obj_name"].astype(str).to_list()
+        to_base = baseline_pred_triplets_df["time_stamp"].astype(str).to_list()
+        triplet_pred_base = set([so_base[i] + '_' + oo_base[i] + '_' + to_base[i] for i in range(len(so_base))])
+
+        TP_base = len(triplet_pred_base & triplet_test_base)
+        FP_base = len(triplet_pred_base - triplet_test_base)
+        FN_base = len(triplet_test_base - triplet_pred_base)
+        TN_base = max(0, total_possible_pairs_all * time_points - (TP_base + FP_base + FN_base)) # Ensure TN is not negative
+
+        # Avoid division by zero
+        Recall_base = TP_base / (TP_base + FN_base) if (TP_base + FN_base) > 0 else 0
+        Precision_base = TP_base / (TP_base + FP_base) if (TP_base + FP_base) > 0 else 0
+        TPR_base = Recall_base
+        FPR_base = FP_base / (FP_base + TN_base) if (FP_base + TN_base) > 0 else 0
+        F1_base = 2 * ((Precision_base * Recall_base) / (Precision_base + Recall_base)) if (Precision_base + Recall_base) > 0 else 0
+        mcc_denom_base = ((TP_base+FP_base)*(TP_base+FN_base)*(TN_base+FP_base)*(TN_base+FN_base))**(1/2)
+        MCC_base = (TP_base*TN_base - FP_base*FN_base) / mcc_denom_base if mcc_denom_base > 0 else 0
+        print("Performance metrics for BASELINE interactions:\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_base,Precision_base,TPR_base,FPR_base,F1_base,MCC_base),file=scores)
+    else:
+         print("Performance metrics for BASELINE interactions:\nCannot calculate metrics - no baseline predictions generated.\n", file=scores)
+
+    # -- MODEL Performance on ALL interactions
+    print("--- Calculating Performance for MODEL (ALL Interactions) ---", file=scores)
+    model_pred_all_df = output_post.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True) # Use model predictions
+
+    # Prepare triplets for set operations
+    st_all = ground_truth_test_df["subject_name"].astype(str).to_list() # Use consistent ground truth
+    ot_all = ground_truth_test_df["obj_name"].astype(str).to_list()
+    tt_all = ground_truth_test_df["time_stamp"].astype(str).to_list()
     triplet_test_all = set([st_all[i] + '_' + ot_all[i] + '_' + tt_all[i] for i in range(len(st_all))])
+
+    so_all = model_pred_all_df["subject_name"].astype(str).to_list()
+    oo_all = model_pred_all_df["obj_name"].astype(str).to_list()
+    to_all = model_pred_all_df["time_stamp"].astype(str).to_list()
+    triplet_pred_all = set([so_all[i] + '_' + oo_all[i] + '_' + to_all[i] for i in range(len(so_all))])
 
     TP_all = len(triplet_pred_all & triplet_test_all)
     FP_all = len(triplet_pred_all - triplet_test_all)
     FN_all = len(triplet_test_all - triplet_pred_all)
-    # TN_all calculation needs total possible pairs relevant *to the test set* if different from train/valid
-    # Using total_possible_pairs_all * time_points assumes test entities are representative of all entities
-    TN_all = total_possible_pairs_all * time_points - (TP_all + FP_all + FN_all)
+    TN_all = max(0, total_possible_pairs_all * time_points - (TP_all + FP_all + FN_all)) # Ensure TN is not negative
 
     Recall_all = TP_all / (TP_all + FN_all) if (TP_all + FN_all) > 0 else 0
     Precision_all = TP_all / (TP_all + FP_all) if (TP_all + FP_all) > 0 else 0
@@ -278,26 +342,24 @@ def main():
     F1_all = 2 * ((Precision_all * Recall_all) / (Precision_all + Recall_all)) if (Precision_all + Recall_all) > 0 else 0
     mcc_denom_all = ((TP_all+FP_all)*(TP_all+FN_all)*(TN_all+FP_all)*(TN_all+FN_all))**(1/2)
     MCC_all = (TP_all*TN_all - FP_all*FN_all) / mcc_denom_all if mcc_denom_all > 0 else 0
-    print("Performance metrics for ALL interactions:\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_all,Precision_all,TPR_all,FPR_all,F1_all,MCC_all),file=scores)
+    print("Performance metrics for MODEL (ALL interactions):\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_all,Precision_all,TPR_all,FPR_all,F1_all,MCC_all),file=scores)
 
+    # -- MODEL Performance on UNCOMMON interactions --
+    print("--- Calculating Performance for MODEL (UNCOMMON Interactions - Freq <= Threshold in Train Set) ---", file=scores)
+    # Use filtered ground truth and predictions
+    ground_truth_uncommon_df = test_filtered_uncommon.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True)
+    model_pred_uncommon_df = predicted_filtered_uncommon.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True)
 
-    # Prediction performances of UNCOMMON interactions
-    print("--- Calculating Performance for UNCOMMON Interactions (Freq <= Threshold in Train Set) ---", file=scores)
-    drop_duplicate_output_un = predicted_filtered_uncommon.drop_duplicates().reset_index(drop=True)
-    drop_duplicate_test_un = test_filtered_uncommon.drop_duplicates().reset_index(drop=True)
-
-    # Check if data exists before proceeding
-    if not drop_duplicate_output_un.empty or not drop_duplicate_test_un.empty:
-        so_un = drop_duplicate_output_un["subject_name"].astype(str).to_list()
-        oo_un = drop_duplicate_output_un["obj_name"].astype(str).to_list()
-        to_un = drop_duplicate_output_un["time_stamp"].astype(str).to_list()
-
-        st_un = drop_duplicate_test_un["subject_name"].astype(str).to_list()
-        ot_un = drop_duplicate_test_un["obj_name"].astype(str).to_list()
-        tt_un = drop_duplicate_test_un["time_stamp"].astype(str).to_list()
-
-        triplet_pred_un = set([so_un[i] + '_' + oo_un[i] + '_' + to_un[i] for i in range(len(so_un))])
+    if not ground_truth_uncommon_df.empty or not model_pred_uncommon_df.empty:
+        st_un = ground_truth_uncommon_df["subject_name"].astype(str).to_list()
+        ot_un = ground_truth_uncommon_df["obj_name"].astype(str).to_list()
+        tt_un = ground_truth_uncommon_df["time_stamp"].astype(str).to_list()
         triplet_test_un = set([st_un[i] + '_' + ot_un[i] + '_' + tt_un[i] for i in range(len(st_un))])
+
+        so_un = model_pred_uncommon_df["subject_name"].astype(str).to_list()
+        oo_un = model_pred_uncommon_df["obj_name"].astype(str).to_list()
+        to_un = model_pred_uncommon_df["time_stamp"].astype(str).to_list()
+        triplet_pred_un = set([so_un[i] + '_' + oo_un[i] + '_' + to_un[i] for i in range(len(so_un))])
 
         TP_un = len(triplet_pred_un & triplet_test_un)
         FP_un = len(triplet_pred_un - triplet_test_un)
@@ -306,7 +368,8 @@ def main():
         sol_un = len(a["subject"].unique())
         ool_un = len(a["object"].unique())
         total_threshold_un = sol_un * ool_un
-        TN_un = total_threshold_un * time_points - (TP_un + FP_un + FN_un)
+        # TN_un refers to the space of possible *uncommon* pairs over time
+        TN_un = max(0, total_threshold_un * time_points - (TP_un + FP_un + FN_un))
 
         Recall_un = TP_un / (TP_un + FN_un) if (TP_un + FN_un) > 0 else 0
         Precision_un = TP_un / (TP_un + FP_un) if (TP_un + FP_un) > 0 else 0
@@ -315,28 +378,26 @@ def main():
         F1_un = 2 * ((Precision_un * Recall_un) / (Precision_un + Recall_un)) if (Precision_un + Recall_un) > 0 else 0
         mcc_denom_un = ((TP_un+FP_un)*(TP_un+FN_un)*(TN_un+FP_un)*(TN_un+FN_un))**(1/2)
         MCC_un = (TP_un*TN_un - FP_un*FN_un) / mcc_denom_un if mcc_denom_un > 0 else 0
-        print("Performance Metrics for UNCOMMON interactions:\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_un,Precision_un,TPR_un,FPR_un,F1_un,MCC_un),file=scores)
+        print("Performance Metrics for MODEL (UNCOMMON interactions):\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_un,Precision_un,TPR_un,FPR_un,F1_un,MCC_un),file=scores)
     else:
-        print("No uncommon interactions found in test/predictions based on training threshold.\n", file=scores)
+        print("Performance Metrics for MODEL (UNCOMMON interactions):\nNo uncommon interactions found in test/predictions based on training threshold.\n", file=scores)
 
+    # -- MODEL Performance on COMMON interactions --
+    print("--- Calculating Performance for MODEL (COMMON Interactions - Freq > Threshold in Train Set) ---", file=scores)
+    # Use filtered ground truth and predictions
+    ground_truth_common_df = test_filtered_common.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True)
+    model_pred_common_df = predicted_filtered_common.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True)
 
-    # Prediction performances of COMMON interactions (frequency > threshold)
-    print("--- Calculating Performance for COMMON Interactions (Freq > Threshold in Train Set) ---", file=scores)
-    drop_duplicate_output_common = predicted_filtered_common.drop_duplicates().reset_index(drop=True)
-    drop_duplicate_test_common = test_filtered_common.drop_duplicates().reset_index(drop=True)
-
-    # Check if data exists before proceeding
-    if not drop_duplicate_output_common.empty or not drop_duplicate_test_common.empty:
-        so_common = drop_duplicate_output_common["subject_name"].astype(str).to_list()
-        oo_common = drop_duplicate_output_common["obj_name"].astype(str).to_list()
-        to_common = drop_duplicate_output_common["time_stamp"].astype(str).to_list()
-
-        st_common = drop_duplicate_test_common["subject_name"].astype(str).to_list()
-        ot_common = drop_duplicate_test_common["obj_name"].astype(str).to_list()
-        tt_common = drop_duplicate_test_common["time_stamp"].astype(str).to_list()
-
-        triplet_pred_common = set([so_common[i] + '_' + oo_common[i] + '_' + to_common[i] for i in range(len(so_common))])
+    if not ground_truth_common_df.empty or not model_pred_common_df.empty:
+        st_common = ground_truth_common_df["subject_name"].astype(str).to_list()
+        ot_common = ground_truth_common_df["obj_name"].astype(str).to_list()
+        tt_common = ground_truth_common_df["time_stamp"].astype(str).to_list()
         triplet_test_common = set([st_common[i] + '_' + ot_common[i] + '_' + tt_common[i] for i in range(len(st_common))])
+
+        so_common = model_pred_common_df["subject_name"].astype(str).to_list()
+        oo_common = model_pred_common_df["obj_name"].astype(str).to_list()
+        to_common = model_pred_common_df["time_stamp"].astype(str).to_list()
+        triplet_pred_common = set([so_common[i] + '_' + oo_common[i] + '_' + to_common[i] for i in range(len(so_common))])
 
         TP_common = len(triplet_pred_common & triplet_test_common)
         FP_common = len(triplet_pred_common - triplet_test_common)
@@ -345,7 +406,8 @@ def main():
         sol_common = len(b["subject"].unique())
         ool_common = len(b["object"].unique())
         total_threshold_common = sol_common * ool_common
-        TN_common = total_threshold_common * time_points - (TP_common + FP_common + FN_common)
+        # TN_common refers to the space of possible *common* pairs over time
+        TN_common = max(0, total_threshold_common * time_points - (TP_common + FP_common + FN_common))
 
         Recall_common = TP_common / (TP_common + FN_common) if (TP_common + FN_common) > 0 else 0
         Precision_common = TP_common / (TP_common + FP_common) if (TP_common + FP_common) > 0 else 0
@@ -354,9 +416,9 @@ def main():
         F1_common = 2 * ((Precision_common * Recall_common) / (Precision_common + Recall_common)) if (Precision_common + Recall_common) > 0 else 0
         mcc_denom_common = ((TP_common+FP_common)*(TP_common+FN_common)*(TN_common+FP_common)*(TN_common+FN_common))**(1/2)
         MCC_common = (TP_common*TN_common - FP_common*FN_common) / mcc_denom_common if mcc_denom_common > 0 else 0
-        print("Performance Metrics for COMMON interactions (Freq > Threshold):\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_common,Precision_common,TPR_common,FPR_common,F1_common,MCC_common),file=scores)
+        print("Performance Metrics for MODEL (COMMON interactions - Freq > Threshold):\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_common,Precision_common,TPR_common,FPR_common,F1_common,MCC_common),file=scores)
     else:
-        print("No common interactions found in test/predictions based on training threshold.\n", file=scores)
+        print("Performance Metrics for MODEL (COMMON interactions - Freq > Threshold):\nNo common interactions found in test/predictions based on training threshold.\n", file=scores)
 
     scores.close()
 """
