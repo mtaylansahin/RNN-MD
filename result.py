@@ -201,150 +201,167 @@ def main():
 
     # TRAIN SET
 
+    # --- Define Uncommon and Common based on TRAIN SET ---
     train_set_post = set_names_df(train_set, df_labels).drop_duplicates().reset_index(drop=True)
-    train_set_post_process = pd.DataFrame()
-    train_set_post_process['subject'] = train_set_post['subject_name']
-    train_set_post_process['object'] = train_set_post['obj_name']
-    train_set_post_process['time_stamp'] = train_set_post['time_stamp']
-    train_set_post_process['type'] = "TRAIN SET"
-    train_set_post_process['pair'] = train_set_post_process[['subject', 'object']].agg('-'.join, axis=1)
-
     train_set_post['freq_count'] = train_set_post.groupby('pair')['pair'].transform('count')
     last_time = np.max(train_set_post['time_stamp'])
     train_time_thrashold = last_time / 2
+
+    # Define UNCOMMON pairs from train set
     a = train_set_post.loc[train_set_post['freq_count'] <= train_time_thrashold ]
-    sol = len(a["subject"].unique())
-    ool = len(a["object"].unique())
-    total_threshold = sol * ool
+    uncommon_pairs_train = a['pair'].unique() # Get unique uncommon pairs
 
-    find_matching_rows(a,test_set_post,"pair","pair")
+    # Define COMMON pairs from train set (frequency > threshold)
+    b = train_set_post.loc[train_set_post['freq_count'] > train_time_thrashold ]
+    common_pairs_train = b['pair'].unique() # Get unique common pairs
 
-    test_filtered = test_set_post[test_set_post["pair"].isin(a["pair"])]
-    predicted_filtered = output_post[output_post["pair"].isin(a["pair"])]
-    
-    # Load and process train.txt, valid.txt, and test.txt from input directory
+    # Filter test/prediction data based on training set classifications
+    test_filtered_uncommon = test_set_post[test_set_post["pair"].isin(uncommon_pairs_train)]
+    predicted_filtered_uncommon = output_post[output_post["pair"].isin(uncommon_pairs_train)]
+
+    test_filtered_common = test_set_post[test_set_post["pair"].isin(common_pairs_train)]
+    predicted_filtered_common = output_post[output_post["pair"].isin(common_pairs_train)]
+    # --------------------------------------------------------
+
+
+    # Load raw data for total calculation (needed for TN)
     with open(os.path.join(input_dir, "train.txt"), 'r') as fr:
         train_data = []
-        train_times = set()
-        for line in fr:
-            line_split = line.split()
-            head = int(line_split[0])
-            tail = int(line_split[2])
-            rel = int(line_split[1])
-            time = int(line_split[3])
-            train_data.append([head, rel, tail, time])
-            train_times.add(time)
-
+        for line in fr: train_data.append([int(x) for x in line.split()])
     with open(os.path.join(input_dir, "valid.txt"), 'r') as fr:
         valid_data = []
-        valid_times = set()
-        for line in fr:
-            line_split = line.split()
-            head = int(line_split[0])
-            tail = int(line_split[2])
-            rel = int(line_split[1])
-            time = int(line_split[3])
-            valid_data.append([head, rel, tail, time])
-            valid_times.add(time)
-
+        for line in fr: valid_data.append([int(x) for x in line.split()])
     with open(os.path.join(input_dir, "test.txt"), 'r') as fr:
         test_data = []
-        test_times = set()
-        for line in fr:
-            line_split = line.split()
-            head = int(line_split[0])
-            tail = int(line_split[2])
-            rel = int(line_split[1])
-            time = int(line_split[3])
-            test_data.append([head, rel, tail, time])
-            test_times.add(time)
+        for line in fr: test_data.append([int(x) for x in line.split()])
 
     total_data = train_data + valid_data + test_data
-    s = []
-    o = []
-    for i in range(len(total_data)):
-        s.append(total_data[i][0])
-        o.append(total_data[i][2])
+    s = [item[0] for item in total_data]
+    o = [item[2] for item in total_data]
     unique_s = len(np.unique(s))
     unique_o = len(np.unique(o))
-    total = unique_o * unique_s
-    time_points = (test_set["time_stamp"].iloc[-1]) - (test_set["time_stamp"].iloc[0] - 1) 
+    total_possible_pairs_all = unique_o * unique_s
+    time_points = (test_set["time_stamp"].max()) - (test_set["time_stamp"].min()) + 1
 
-    # Prediction performances of common interaction
-    drop_duplicate_output = output.drop_duplicates().reset_index(drop=True)
-    drop_duplicate_test = test_set.drop_duplicates().reset_index(drop=True)
+    # --- Performance Calculation ---
+    scores_file_path = os.path.join(output_dir, "PerformanceMetrics.txt")
+    scores = open(scores_file_path,"w")
 
-    so = drop_duplicate_output["subject"].to_list()
-    oo = drop_duplicate_output["object"].to_list()
-    to = drop_duplicate_output["time_stamp"].to_list()
+    # Prediction performances of ALL interactions
+    print("--- Calculating Performance for ALL Interactions ---", file=scores)
+    drop_duplicate_output_all = output_post.drop_duplicates().reset_index(drop=True) # Use output_post directly
+    drop_duplicate_test_all = test_set_post.drop_duplicates().reset_index(drop=True) # Use test_set_post directly
 
-    st = drop_duplicate_test["subject"].to_list()
-    ot = drop_duplicate_test["object"].to_list()
-    tt = drop_duplicate_test["time_stamp"].to_list() 
+    # Use named columns for clarity
+    so_all = drop_duplicate_output_all["subject_name"].astype(str).to_list()
+    oo_all = drop_duplicate_output_all["obj_name"].astype(str).to_list()
+    to_all = drop_duplicate_output_all["time_stamp"].astype(str).to_list()
 
-    triplet_o = []
-    triplet_t = []
+    st_all = drop_duplicate_test_all["subject_name"].astype(str).to_list()
+    ot_all = drop_duplicate_test_all["obj_name"].astype(str).to_list()
+    tt_all = drop_duplicate_test_all["time_stamp"].astype(str).to_list()
 
-    for i in range(0,len(so)):
-        triplet_o.append(str(so[i])+str(oo[i])+str(to[i]))
-    
-    for i in range(0,len(st)):
-        triplet_t.append(str(st[i])+str(ot[i])+str(tt[i]))
+    triplet_pred_all = set([so_all[i] + '_' + oo_all[i] + '_' + to_all[i] for i in range(len(so_all))])
+    triplet_test_all = set([st_all[i] + '_' + ot_all[i] + '_' + tt_all[i] for i in range(len(st_all))])
 
-    TP = len(set(triplet_o) & set(triplet_t))
-    FP = len(set(triplet_o) - set(triplet_t))
-    FN = len(set(triplet_t) - set(triplet_o))
-    TN = total * time_points - (TP + FP + FN)
+    TP_all = len(triplet_pred_all & triplet_test_all)
+    FP_all = len(triplet_pred_all - triplet_test_all)
+    FN_all = len(triplet_test_all - triplet_pred_all)
+    # TN_all calculation needs total possible pairs relevant *to the test set* if different from train/valid
+    # Using total_possible_pairs_all * time_points assumes test entities are representative of all entities
+    TN_all = total_possible_pairs_all * time_points - (TP_all + FP_all + FN_all)
 
-    Recall = TP / (TP + FN)
-    Precision = TP / (TP + FP)
-    TPR = TP / (TP + FN)
-    FPR = FP / (FP + TN)
-    F1 = 2 * ((Precision * Recall) / (Precision + Recall))
-    MCC = (TP*TN - FP*FN) / ((TP+FP)*(TP+FN)*(TN+FP)*(TN+FN))**(1/2)
-    scores_file = os.path.join(output_dir)
-    scores = open("PerformanceMetrics.txt","w")
-    print("Performance metrics for commons\nRecall: {:.2f}, Precision: {:.2f}, TPR: {:.2f}, FPR: {:.2f}, F1: {:.2f}, MCC: {:.2f}".format(Recall,Precision,TPR,FPR,F1,MCC),file=scores)
+    Recall_all = TP_all / (TP_all + FN_all) if (TP_all + FN_all) > 0 else 0
+    Precision_all = TP_all / (TP_all + FP_all) if (TP_all + FP_all) > 0 else 0
+    TPR_all = Recall_all
+    FPR_all = FP_all / (FP_all + TN_all) if (FP_all + TN_all) > 0 else 0
+    F1_all = 2 * ((Precision_all * Recall_all) / (Precision_all + Recall_all)) if (Precision_all + Recall_all) > 0 else 0
+    mcc_denom_all = ((TP_all+FP_all)*(TP_all+FN_all)*(TN_all+FP_all)*(TN_all+FN_all))**(1/2)
+    MCC_all = (TP_all*TN_all - FP_all*FN_all) / mcc_denom_all if mcc_denom_all > 0 else 0
+    print("Performance metrics for ALL interactions:\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_all,Precision_all,TPR_all,FPR_all,F1_all,MCC_all),file=scores)
 
 
-    # Prediction performances of uncommon interaction
+    # Prediction performances of UNCOMMON interactions
+    print("--- Calculating Performance for UNCOMMON Interactions (Freq <= Threshold in Train Set) ---", file=scores)
+    drop_duplicate_output_un = predicted_filtered_uncommon.drop_duplicates().reset_index(drop=True)
+    drop_duplicate_test_un = test_filtered_uncommon.drop_duplicates().reset_index(drop=True)
 
-    drop_duplicate_output_un = predicted_filtered.drop_duplicates().reset_index(drop=True)
-    drop_duplicate_test_un = test_filtered.drop_duplicates().reset_index(drop=True)
+    # Check if data exists before proceeding
+    if not drop_duplicate_output_un.empty or not drop_duplicate_test_un.empty:
+        so_un = drop_duplicate_output_un["subject_name"].astype(str).to_list()
+        oo_un = drop_duplicate_output_un["obj_name"].astype(str).to_list()
+        to_un = drop_duplicate_output_un["time_stamp"].astype(str).to_list()
 
-    so_un = drop_duplicate_output_un["subject"].to_list()
-    oo_un = drop_duplicate_output_un["object"].to_list()
-    to_un = drop_duplicate_output_un["time_stamp"].to_list()
+        st_un = drop_duplicate_test_un["subject_name"].astype(str).to_list()
+        ot_un = drop_duplicate_test_un["obj_name"].astype(str).to_list()
+        tt_un = drop_duplicate_test_un["time_stamp"].astype(str).to_list()
 
-    st_un = drop_duplicate_test_un["subject"].to_list()
-    ot_un = drop_duplicate_test_un["object"].to_list()
-    tt_un = drop_duplicate_test_un["time_stamp"].to_list()
+        triplet_pred_un = set([so_un[i] + '_' + oo_un[i] + '_' + to_un[i] for i in range(len(so_un))])
+        triplet_test_un = set([st_un[i] + '_' + ot_un[i] + '_' + tt_un[i] for i in range(len(st_un))])
 
-    triplet_ot = []
-    triplet_tt = []
+        TP_un = len(triplet_pred_un & triplet_test_un)
+        FP_un = len(triplet_pred_un - triplet_test_un)
+        FN_un = len(triplet_test_un - triplet_pred_un)
+        # Calculate total possible uncommon interactions based on unique subjects/objects in 'a'
+        sol_un = len(a["subject"].unique())
+        ool_un = len(a["object"].unique())
+        total_threshold_un = sol_un * ool_un
+        TN_un = total_threshold_un * time_points - (TP_un + FP_un + FN_un)
 
-    for i in range(0,len(so_un)):
-        triplet_ot.append(str(so_un[i])+str(oo_un[i])+str(to_un[i]))
+        Recall_un = TP_un / (TP_un + FN_un) if (TP_un + FN_un) > 0 else 0
+        Precision_un = TP_un / (TP_un + FP_un) if (TP_un + FP_un) > 0 else 0
+        TPR_un = Recall_un
+        FPR_un = FP_un / (FP_un + TN_un) if (FP_un + TN_un) > 0 else 0
+        F1_un = 2 * ((Precision_un * Recall_un) / (Precision_un + Recall_un)) if (Precision_un + Recall_un) > 0 else 0
+        mcc_denom_un = ((TP_un+FP_un)*(TP_un+FN_un)*(TN_un+FP_un)*(TN_un+FN_un))**(1/2)
+        MCC_un = (TP_un*TN_un - FP_un*FN_un) / mcc_denom_un if mcc_denom_un > 0 else 0
+        print("Performance Metrics for UNCOMMON interactions:\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_un,Precision_un,TPR_un,FPR_un,F1_un,MCC_un),file=scores)
+    else:
+        print("No uncommon interactions found in test/predictions based on training threshold.\n", file=scores)
 
-    for i in range(0,len(st_un)):
-        triplet_tt.append(str(st_un[i])+str(ot_un[i])+str(tt_un[i]))
-        
-    TP_un = len(set(triplet_ot) & set(triplet_tt))
-    FP_un = len(set(triplet_ot) - set(triplet_tt))
-    FN_un = len(set(triplet_tt) - set(triplet_ot))
-    TN_un = total_threshold * time_points - (TP_un + FP_un + FN_un)
 
-    Recall_un = TP_un / (TP_un + FN_un)
-    Precision_un = TP_un / (TP_un + FP_un)
-    TPR_un = TP_un / (TP_un + FN_un)
-    FPR_un = FP_un / (FP_un + TN_un)
+    # Prediction performances of COMMON interactions (frequency > threshold)
+    print("--- Calculating Performance for COMMON Interactions (Freq > Threshold in Train Set) ---", file=scores)
+    drop_duplicate_output_common = predicted_filtered_common.drop_duplicates().reset_index(drop=True)
+    drop_duplicate_test_common = test_filtered_common.drop_duplicates().reset_index(drop=True)
 
-    F1_un = 2 * ((Precision_un * Recall_un) / (Precision_un + Recall_un))
-    MCC_un = (TP_un*TN_un - FP_un*FN_un) / ((TP_un+FP_un)*(TP_un+FN_un)*(TN_un+FP_un)*(TN_un+FN_un))**(1/2)
-    print("Performance Metrics for uncommons:\nRecall: {:.2f}, Precision: {:.2f}, TPR: {:.2f}, FPR: {:.2f}, F1: {:.2f}, MCC: {:.2f}".format(Recall_un,Precision_un,TPR_un,FPR_un,F1_un,MCC_un),file=scores)
-    scores.close()
-    shutil.move("PerformanceMetrics.txt",output_dir)
+    # Check if data exists before proceeding
+    if not drop_duplicate_output_common.empty or not drop_duplicate_test_common.empty:
+        so_common = drop_duplicate_output_common["subject_name"].astype(str).to_list()
+        oo_common = drop_duplicate_output_common["obj_name"].astype(str).to_list()
+        to_common = drop_duplicate_output_common["time_stamp"].astype(str).to_list()
 
+        st_common = drop_duplicate_test_common["subject_name"].astype(str).to_list()
+        ot_common = drop_duplicate_test_common["obj_name"].astype(str).to_list()
+        tt_common = drop_duplicate_test_common["time_stamp"].astype(str).to_list()
+
+        triplet_pred_common = set([so_common[i] + '_' + oo_common[i] + '_' + to_common[i] for i in range(len(so_common))])
+        triplet_test_common = set([st_common[i] + '_' + ot_common[i] + '_' + tt_common[i] for i in range(len(st_common))])
+
+        TP_common = len(triplet_pred_common & triplet_test_common)
+        FP_common = len(triplet_pred_common - triplet_test_common)
+        FN_common = len(triplet_test_common - triplet_pred_common)
+        # Calculate total possible common interactions based on unique subjects/objects in 'b'
+        sol_common = len(b["subject"].unique())
+        ool_common = len(b["object"].unique())
+        total_threshold_common = sol_common * ool_common
+        TN_common = total_threshold_common * time_points - (TP_common + FP_common + FN_common)
+
+        Recall_common = TP_common / (TP_common + FN_common) if (TP_common + FN_common) > 0 else 0
+        Precision_common = TP_common / (TP_common + FP_common) if (TP_common + FP_common) > 0 else 0
+        TPR_common = Recall_common
+        FPR_common = FP_common / (FP_common + TN_common) if (FP_common + TN_common) > 0 else 0
+        F1_common = 2 * ((Precision_common * Recall_common) / (Precision_common + Recall_common)) if (Precision_common + Recall_common) > 0 else 0
+        mcc_denom_common = ((TP_common+FP_common)*(TP_common+FN_common)*(TN_common+FP_common)*(TN_common+FN_common))**(1/2)
+        MCC_common = (TP_common*TN_common - FP_common*FN_common) / mcc_denom_common if mcc_denom_common > 0 else 0
+        print("Performance Metrics for COMMON interactions (Freq > Threshold):\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_common,Precision_common,TPR_common,FPR_common,F1_common,MCC_common),file=scores)
+    else:
+        print("No common interactions found in test/predictions based on training threshold.\n", file=scores)
+
+    scores.close() # Close file
+    shutil.move(scores_file_path, output_dir) # Move file
+
+"""
     df = pd.DataFrame(total_data, columns=['subject', 'relation', 'object', 'time_stamp'])
 
     df_set_post = set_names_df(df, df_labels).drop_duplicates().reset_index(drop=True)
@@ -619,6 +636,8 @@ def main():
     fig.write_image(os.path.join(output_dir, "Bubble_Heatmap.png"))
 
     print("Bubble heatmap saved to Bubble_Heatmaps.png")
+"""
+
 
 if __name__ == "__main__":
     main()
