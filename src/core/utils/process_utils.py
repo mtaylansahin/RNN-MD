@@ -161,7 +161,8 @@ class ProcessManager:
         working_directory: Optional[Union[str, Path]] = None,
         environment: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        check: bool = True
+        check: bool = True,
+        capture_output: bool = True
     ) -> ProcessResult:
         """Execute a Python script with arguments.
         
@@ -172,6 +173,7 @@ class ProcessManager:
             environment: Environment variables for the process
             timeout: Timeout in seconds
             check: Whether to raise exception on non-zero return code
+            capture_output: Whether to capture stdout and stderr (False for real-time output)
             
         Returns:
             ProcessResult containing execution details
@@ -187,7 +189,8 @@ class ProcessManager:
             working_directory=working_directory,
             environment=environment,
             timeout=timeout,
-            check=check
+            check=check,
+            capture_output=capture_output
         )
     
     @contextmanager
@@ -257,7 +260,7 @@ class RENetProcessManager(ProcessManager):
             ProcessResult from the operation
         """
         data_directory = self.renet_directory / "data" / dataset_name
-        script_path = data_directory / "get_history_graph.py"
+        script_path = "get_history_graph.py"  # Use relative path since we're setting working directory
         
         return self.run_python_script(
             script_path=script_path,
@@ -302,9 +305,10 @@ class RENetProcessManager(ProcessManager):
         ]
         
         return self.run_python_script(
-            script_path=self.renet_directory / "pretrain.py",
+            script_path="pretrain.py",  # Use relative path since we're setting working directory
             args=args,
-            working_directory=self.renet_directory
+            working_directory=self.renet_directory,
+            capture_output=False  # Allow real-time output for training progress
         )
     
     def train_model(
@@ -345,9 +349,10 @@ class RENetProcessManager(ProcessManager):
         ]
         
         return self.run_python_script(
-            script_path=self.renet_directory / "train.py",
+            script_path="train.py",  # Use relative path since we're setting working directory
             args=args,
-            working_directory=self.renet_directory
+            working_directory=self.renet_directory,
+            capture_output=False  # Allow real-time output for training progress
         )
     
     def test_model(
@@ -376,7 +381,7 @@ class RENetProcessManager(ProcessManager):
         ]
         
         return self.run_python_script(
-            script_path=self.renet_directory / "test.py",
+            script_path="test.py",  # Use relative path since we're setting working directory
             args=args,
             working_directory=self.renet_directory
         ) 

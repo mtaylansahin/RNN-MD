@@ -1,11 +1,16 @@
 """Data loader for analysis input files."""
 
-import pandas as pd
+import sys
 from pathlib import Path
+
+# Add src to path for absolute imports
+sys.path.insert(0, str(Path(__file__).parents[2]))
+
+import pandas as pd
 from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
 
-from ...core.utils import get_logger, FileManager
+from core.utils import get_logger, FileManager
 
 
 logger = get_logger(__name__)

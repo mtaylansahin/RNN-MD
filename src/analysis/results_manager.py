@@ -1,14 +1,22 @@
-"""Main results manager that orchestrates the complete analysis pipeline."""
+"""Results management for analysis operations."""
+
+import sys
+from pathlib import Path
+
+# Add src to path for absolute imports
+sys.path.insert(0, str(Path(__file__).parents[1]))
 
 import argparse
+import json
+import logging
 import os
-from pathlib import Path
-from typing import Optional, Dict, Any
+from datetime import datetime
+from typing import Dict, List, Optional, Any
 
+from core.utils import get_logger, FileManager, ExperimentLogger
 from .config import AnalysisConfig
 from .data import DataLoader, DataProcessor, LoadedData, ProcessedData
 from .analytics import MetricsCalculator, MetricsReport
-from ..core.utils import get_logger, FileManager, ExperimentLogger
 
 
 logger = get_logger(__name__)
@@ -271,7 +279,7 @@ class ResultsManager:
             ground_truth_csv = self._generate_ground_truth_csv(processed_data)
             gt_csv_path = os.path.join(self.config.output_directory, "ground_truth.csv")
             result = self.file_manager.write_json_file(
-                ground_truth_csv.to_dict('records'),
+                ground_truth_csv,  # Already a list of dictionaries
                 gt_csv_path.replace('.csv', '.json')  # Use JSON for complex data
             )
             
@@ -279,7 +287,7 @@ class ResultsManager:
             prediction_csv = self._generate_prediction_csv(processed_data)
             pred_csv_path = os.path.join(self.config.output_directory, "prediction.csv")
             result = self.file_manager.write_json_file(
-                prediction_csv.to_dict('records'),
+                prediction_csv,  # Already a list of dictionaries
                 pred_csv_path.replace('.csv', '.json')  # Use JSON for complex data
             )
             

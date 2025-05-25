@@ -34,10 +34,17 @@ def save_dataset(dataset, df):
     third_stat_time = len(set(train['time'])) + len(set(test['time'])) + len(set(valid['time']))
     stat = np.array([first_stat_entity, second_stat_relations, third_stat_time]).T
 
-    np.savetxt(os.getcwd() + '/' + sys.argv[1] +'/stat.txt', stat, fmt='%d', newline=' ')
-    np.savetxt(os.getcwd() + '/' + sys.argv[1] +'/test.txt', test.values, fmt='%d')
-    np.savetxt(os.getcwd() + '/' + sys.argv[1] +'/valid.txt', valid.values, fmt='%d')
-    np.savetxt(os.getcwd() + '/' + sys.argv[1] +'/train.txt', train.values, fmt='%d')
+    # Handle both absolute and relative paths for data directory
+    data_dir = sys.argv[1]
+    if os.path.isabs(data_dir):
+        output_dir = data_dir
+    else:
+        output_dir = os.path.join(os.getcwd(), data_dir)
+    
+    np.savetxt(os.path.join(output_dir, 'stat.txt'), stat, fmt='%d', newline=' ')
+    np.savetxt(os.path.join(output_dir, 'test.txt'), test.values, fmt='%d')
+    np.savetxt(os.path.join(output_dir, 'valid.txt'), valid.values, fmt='%d')
+    np.savetxt(os.path.join(output_dir, 'train.txt'), train.values, fmt='%d')
 
 def df_for_introduction(df):
     df_introduce_objects = pd.DataFrame()
@@ -103,16 +110,29 @@ class Format:
             Changes global variables: current_replica, input_directory, input_files, out_files, files_list
 
             Parameters:
-            rep_no(int): the replica number
+            rep_no(str): the replica identifier (e.g., 'replica1')
 
         """
         print(os.getcwd())
-        self.current_replica = 'replica' + str(rep_no)
-        self.input_directory = os.getcwd() + '/' + sys.argv[1] + '/' + self.current_replica
-        self.input_files = self.input_directory + '/rep' + str(rep_no) + '-interfacea'  # for taking all input files (.interfacea)
+        self.current_replica = rep_no  # rep_no is already 'replica1', don't add 'replica' prefix
+        
+        # Handle both absolute and relative paths for data directory
+        data_dir = sys.argv[1]
+        if os.path.isabs(data_dir):
+            # If absolute path, use it directly
+            self.input_directory = os.path.join(data_dir, self.current_replica)
+        else:
+            # If relative path, join with current working directory
+            self.input_directory = os.path.join(os.getcwd(), data_dir, self.current_replica)
+        
+        # Extract just the replica number from rep_no (e.g., 'replica1' -> '1')
+        replica_num = rep_no.replace('replica', '')
+        self.input_files = os.path.join(self.input_directory, f'rep{replica_num}-interfacea')
+        
         self.files_list = os.listdir(self.input_files)  # list of all interfacea files for given replica
         print("current replica: " + self.current_replica)
         print("input directory: " + self.input_directory)
+        print("input files path: " + self.input_files)
 
     ##WARNING: this is for the current file naming convention for storing .interfacea files
     def interfacea_to_df(self):
@@ -125,7 +145,7 @@ class Format:
         for ifacea_file in self.files_list:
             time_stamp = int(np.array(re.findall('[0-9]+', ifacea_file)))-1
 
-            interfacea_file = pd.read_table(self.input_files + '/' + ifacea_file, header=0,
+            interfacea_file = pd.read_table(os.path.join(self.input_files, ifacea_file), header=0,
                                                 names=['itype', 'chain_a', 'chain_b', 'resname_a', 'resname_b',
                                                        'resid_a',
                                                        'resid_b', 'atom_a', 'atom_b'], sep="\s+")
@@ -146,7 +166,15 @@ class Format:
         df_categorical['res_label_b'] = pd.Categorical(df_categorical.chain_res_b).codes + np.max(df_categorical['res_label_a']) + 1
         df_categorical['atom_label_a'] = pd.Categorical(df_categorical.chain_atom_res_a).codes
         df_categorical['atom_label_b'] = pd.Categorical(df_categorical.chain_atom_res_b).codes
-        np.savetxt(os.getcwd() + '/' + sys.argv[1] +'/labels.txt', df_categorical, fmt = "%s")
+        
+        # Handle both absolute and relative paths for data directory
+        data_dir = sys.argv[1]
+        if os.path.isabs(data_dir):
+            output_dir = data_dir
+        else:
+            output_dir = os.path.join(os.getcwd(), data_dir)
+            
+        np.savetxt(os.path.join(output_dir, 'labels.txt'), df_categorical, fmt = "%s")
         return df_categorical
     
 def main():

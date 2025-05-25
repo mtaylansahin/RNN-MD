@@ -1,12 +1,18 @@
 """Model manager for handling RE-Net model artifacts and metadata."""
 
 import os
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from ...core.config import ExperimentConfig
-from ...core.utils import FileManager, get_logger
+# Add src to path for imports if not already there
+src_path = Path(__file__).parent.parent.parent
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
+from core.config import ExperimentConfig
+from core.utils import FileManager, get_logger
 
 
 logger = get_logger(__name__)

@@ -164,7 +164,7 @@ class ConfigManager:
         )
         
         # Create experiment configuration
-        experiment_name = os.path.basename(parsed_args.data_dir)
+        experiment_name = os.path.basename(parsed_args.data_dir.rstrip('/'))
         experiment_config = ExperimentConfig(
             experiment_name=experiment_name,
             data_config=data_config,

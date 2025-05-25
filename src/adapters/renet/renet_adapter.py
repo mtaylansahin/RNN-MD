@@ -3,13 +3,19 @@
 import os
 import random
 import string
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
 
-from ...core.config import ExperimentConfig
-from ...core.utils import FileManager, get_logger
-from ...core.utils.process_utils import RENetProcessManager, ProcessResult, ProcessError
+# Add src to path for imports if not already there
+src_path = Path(__file__).parent.parent.parent
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
+from core.config import ExperimentConfig
+from core.utils import FileManager, get_logger
+from core.utils.process_utils import RENetProcessManager, ProcessResult, ProcessError
 from .model_manager import RENetModelManager
 
 
