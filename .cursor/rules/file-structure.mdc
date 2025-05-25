@@ -1,0 +1,61 @@
+---
+description: File Structure Guide
+globs: 
+alwaysApply: false
+---
+# RNN-MD File Structure Guide
+
+## Root Directory Files
+
+### Core Scripts
+- [RNN-MD.py](mdc:RNN-MD.py) - Main orchestration script with hyperparameter grid search
+- [format.py](mdc:format.py) - Data preprocessing and formatting utility
+- [model_train.py](mdc:model_train.py) - Standalone training script for single runs
+- [result.py](mdc:result.py) - Results analysis and visualization generator
+
+### Configuration & Setup
+- [setup.sh](mdc:setup.sh) - Automated installation script for dependencies
+- [requirements.txt](mdc:requirements.txt) - Python package dependencies
+- [README.md](mdc:README.md) - Project documentation and usage instructions
+
+### Documentation
+- [code_architecture.png](mdc:code_architecture.png) - Visual workflow diagram
+- [LICENCE](mdc:LICENCE) - Project license file
+
+## Directory Structure
+
+### RE-Net/ - Neural Network Framework
+The [RE-Net/](mdc:RE-Net) directory contains the modified recurrent graph neural network implementation:
+
+**Core Model Files:**
+- [RE-Net/model.py](mdc:RE-Net/model.py) - Main RNN model architecture
+- [RE-Net/RGCN.py](mdc:RE-Net/RGCN.py) - Relational Graph Convolutional Network components
+- [RE-Net/Aggregator.py](mdc:RE-Net/Aggregator.py) - Graph aggregation functions
+- [RE-Net/global_model.py](mdc:RE-Net/global_model.py) - Global model components
+
+**Training Scripts:**
+- [RE-Net/pretrain.py](mdc:RE-Net/pretrain.py) - Model pre-training
+- [RE-Net/train.py](mdc:RE-Net/train.py) - Main training loop
+- [RE-Net/test.py](mdc:RE-Net/test.py) - Model testing and evaluation
+
+**Utilities:**
+- [RE-Net/utils.py](mdc:RE-Net/utils.py) - Helper functions and data loading
+- [RE-Net/data/](mdc:RE-Net/data) - Training data directory (created during runs)
+- [RE-Net/baselines/](mdc:RE-Net/baselines) - Baseline comparison methods
+
+### Runtime Directories
+- `test-run/` - Example interaction data for testing
+- `example-run/` - Additional example datasets
+- `prerprint_output/` - Output from previous runs
+- `results/` - Generated results and predictions (created during execution)
+
+## Data Flow
+1. Input data in `test-run/` or `example-run/`
+2. [format.py](mdc:format.py) processes data → `RE-Net/data/<case_id>/`
+3. [RE-Net/](mdc:RE-Net) scripts train models using processed data
+4. [result.py](mdc:result.py) generates analysis → `results/` directory
+
+## Important Notes
+- The [RE-Net/data/](mdc:RE-Net/data) directory is dynamically created during runs
+- Results are stored in timestamped directories under `results/`
+- Each run generates metadata files with hyperparameter information

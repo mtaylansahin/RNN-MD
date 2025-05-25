@@ -1,0 +1,133 @@
+---
+description: Troubleshooting Guide
+globs: 
+alwaysApply: false
+---
+# RNN-MD Troubleshooting Guide
+
+## Common Issues and Solutions
+
+### GPU and CUDA Issues
+
+#### "CUDA device not found" Error
+**Problem**: The system requires NVIDIA GPU but cannot detect it.
+**Solutions**:
+1. Verify GPU availability: `nvidia-smi`
+2. Check CUDA installation: `nvcc --version`
+3. Ensure correct PyTorch CUDA version matches system CUDA
+4. Reinstall with [setup.sh](mdc:setup.sh) for proper CUDA versions
+
+#### Memory Issues
+**Problem**: GPU out of memory during training.
+**Solutions**:
+1. Reduce `--batch_size` parameter in [RNN-MD.py](mdc:RNN-MD.py)
+2. Decrease `--n_hidden` (number of hidden units)
+3. Monitor GPU memory usage: `nvidia-smi`
+4. Close other GPU-using processes
+
+### Environment and Dependencies
+
+#### Conda Environment Issues
+**Problem**: Package conflicts or missing dependencies.
+**Solutions**:
+1. Create fresh environment: `conda create -n RNN-MD python=3.6`
+2. Use exact versions from [setup.sh](mdc:setup.sh)
+3. Install PyTorch with specific CUDA version before other packages
+4. Check [requirements.txt](mdc:requirements.txt) for all dependencies
+
+#### Python Version Conflicts
+**Problem**: Code requires Python 3.6 specifically.
+**Solutions**:
+1. Ensure Python 3.6 in conda environment
+2. Some torch/DGL combinations only work with older Python versions
+3. Don't upgrade Python version without testing compatibility
+
+### Data and File Issues
+
+#### Input Data Format Errors
+**Problem**: [format.py](mdc:format.py) fails to process input files.
+**Solutions**:
+1. Verify input directory contains interfacea output files
+2. Check file naming conventions match expected format
+3. Ensure chain identifiers (A, B, C, etc.) match actual data
+4. Validate replica numbers correspond to existing files
+
+#### Missing Files During Training
+**Problem**: RE-Net scripts cannot find required files.
+**Solutions**:
+1. Ensure [format.py](mdc:format.py) completed successfully
+2. Check that `train.txt`, `valid.txt`, `test.txt`, `stat.txt` exist in `RE-Net/data/<case_id>/`
+3. Verify `get_history_graph.py` was copied to data directory
+4. Run `get_hist_graph()` method before training
+
+### Training and Model Issues
+
+#### Training Fails to Start
+**Problem**: Model training terminates immediately or with errors.
+**Solutions**:
+1. Check that pre-training completed successfully
+2. Verify all hyperparameters are within valid ranges
+3. Ensure sufficient disk space for model checkpoints
+4. Check that GPU has sufficient memory for model size
+
+#### Poor Model Performance
+**Problem**: Model accuracy is unexpectedly low.
+**Solutions**:
+1. Verify data quality and sufficient training examples
+2. Adjust `--train_ratio` and `--valid_ratio` for better data splits
+3. Try different hyperparameter combinations
+4. Increase `--train_epochs` or `--pretrain_epochs`
+5. Check for data leakage or incorrect preprocessing
+
+### Parameter and Configuration Issues
+
+#### Grid Search Takes Too Long
+**Problem**: Hyperparameter grid search with ranges runs indefinitely.
+**Solutions**:
+1. Reduce parameter ranges: use smaller steps in `[start, stop, step]`
+2. Limit number of parameters varied simultaneously
+3. Use single values instead of ranges for initial testing
+4. Monitor progress in output directories
+
+#### File Permission Errors
+**Problem**: Cannot write to output directories or move files.
+**Solutions**:
+1. Check write permissions in working directory
+2. Ensure sufficient disk space
+3. Avoid running in system directories
+4. Use `chmod +x setup.sh` for script execution
+
+## Debugging Strategies
+
+### Logging and Output
+- Monitor [RNN-MD.py](mdc:RNN-MD.py) console output for error messages
+- Check generated metadata files for parameter confirmation
+- Examine intermediate files in `RE-Net/data/<case_id>/` directory
+
+### Testing with Example Data
+1. Start with `test-run` directory for initial validation
+2. Use minimal parameter ranges for quick testing
+3. Verify each step of pipeline independently:
+   - [format.py](mdc:format.py) → data formatting
+   - [model_train.py](mdc:model_train.py) → training
+   - [result.py](mdc:result.py) → analysis
+
+### Performance Monitoring
+- Use `nvidia-smi` to monitor GPU utilization
+- Check CPU and memory usage during data processing
+- Monitor disk space in output directories
+
+## Getting Help
+
+### Log Files and Error Messages
+When reporting issues, include:
+1. Complete error messages and stack traces
+2. System specifications (GPU model, CUDA version)
+3. Parameter values used
+4. Contents of generated metadata files
+
+### Hardware Requirements Verification
+- NVIDIA GPU with CUDA support
+- Sufficient GPU memory (varies by model size)
+- Adequate CPU RAM for data processing
+- Fast storage for large dataset handling

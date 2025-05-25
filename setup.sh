@@ -25,7 +25,7 @@ echo "Activating Conda environment..."
 conda create -n RNN-MD python=3.6 numpy -y
 
 # Activate your specific Conda environment
-conda activate RNN-MD  # Replace 'myenv' with your environment name
+conda activate RNN-MD
 
 if [ $? -ne 0 ]; then
     echo "Error: Failed to activate Conda environment 'RNN-MD'."

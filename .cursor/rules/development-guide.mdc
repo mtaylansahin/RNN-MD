@@ -1,0 +1,105 @@
+---
+description: Development Guide
+globs: 
+alwaysApply: false
+---
+# RNN-MD Development Guide
+
+## Code Architecture
+
+### Main Pipeline Flow
+The [RNN-MD.py](mdc:RNN-MD.py) script orchestrates the entire workflow:
+1. **Argument Parsing**: Uses `parse_arguments()` to handle command-line parameters
+2. **Data Preprocessing**: Calls [format.py](mdc:format.py) to convert input data
+3. **Model Training**: Uses `ModelTrainTest` class for training orchestration
+4. **Result Generation**: Calls [result.py](mdc:result.py) for analysis
+
+### Key Classes and Functions
+
+#### ModelTrainTest Class (RNN-MD.py)
+- `get_hist_graph()`: Generates history graphs from training data
+- `pretrain()`: Runs model pre-training phase
+- `train()`: Executes main training loop
+- `test()`: Performs model testing and generates predictions
+
+#### Parameter Handling
+- `parse_range()`: Converts string parameters to lists for grid search
+- Supports both single values and ranges: `"0.5"` or `"[0.1, 0.9, 0.1]"`
+
+## Modifying Model Parameters
+
+### Adding New Hyperparameters
+To add a new hyperparameter to [RNN-MD.py](mdc:RNN-MD.py):
+
+1. **Add argument parser entry**:
+   ```python
+   parser.add_argument('--new_param', type=str, default="value", help='Description')
+   ```
+
+2. **Parse the range**:
+   ```python
+   new_param_values = parse_range(args.new_param, float)
+   ```
+
+3. **Add to grid search loops**:
+   ```python
+   for new_param in new_param_values:
+       # Include in existing nested loops
+   ```
+
+4. **Pass to RE-Net scripts**:
+   Update `pretrain()`, `train()`, or `test()` methods to include the new parameter.
+
+### Modifying Neural Network Architecture
+The core model is in [RE-Net/model.py](mdc:RE-Net/model.py):
+- **RNN Components**: Modify recurrent layers and hidden dimensions
+- **Graph Networks**: Update [RE-Net/RGCN.py](mdc:RE-Net/RGCN.py) for graph convolutions
+- **Aggregation**: Change [RE-Net/Aggregator.py](mdc:RE-Net/Aggregator.py) for different aggregation strategies
+
+## Data Format Customization
+
+### Interaction Types
+Currently supports 3 interaction types in [format.py](mdc:format.py):
+- 0: hydrogen bonds
+- 1: hydrophobic interactions  
+- 2: ionic interactions
+
+To add new interaction types:
+1. Modify the parsing logic in [format.py](mdc:format.py)
+2. Update label mappings in data processing
+3. Ensure [RE-Net/utils.py](mdc:RE-Net/utils.py) handles the new types
+
+### Input Data Format
+The system expects interfacea tool output. To support different input formats:
+1. Modify [format.py](mdc:format.py) parsing functions
+2. Ensure output maintains the required format for [RE-Net/](mdc:RE-Net)
+
+## Extending Analysis and Visualization
+
+### Custom Metrics
+[result.py](mdc:result.py) generates various analysis outputs. To add new metrics:
+1. Implement new calculation functions
+2. Add visualization code using matplotlib/plotly
+3. Include in the output generation pipeline
+
+### Output Formats
+Current outputs include heatmaps, plots, and prediction files. New output types can be added by extending the analysis functions in [result.py](mdc:result.py).
+
+## GPU and Environment Configuration
+
+### CUDA Settings
+The system requires NVIDIA GPU support. GPU settings are configured in:
+- [RE-Net/train.py](mdc:RE-Net/train.py): `--gpu 0` parameter
+- [RE-Net/test.py](mdc:RE-Net/test.py): GPU device selection
+
+### Dependencies
+- Core dependencies in [requirements.txt](mdc:requirements.txt)
+- CUDA-specific versions in [setup.sh](mdc:setup.sh)
+- Environment setup scripts should maintain PyTorch/CUDA compatibility
+
+## Testing and Validation
+
+### Example Data
+- Use `test-run/` directory for initial testing
+- Example configurations available in [README.md](mdc:README.md)
+- Validate changes with known datasets before production runs

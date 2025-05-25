@@ -7,6 +7,9 @@ import seaborn as sns
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+from sklearn.metrics import matthews_corrcoef
+from collections import defaultdict
+import matplotlib.colors as mcolors
 
 
 def parse_arguments():
@@ -114,11 +117,37 @@ def heatmap_similarity_score(test_pivot, predicted_pivot, output_file):
         file.write(f"Score: {score}\n")
 
 def custom_sort(value):
-    numeric_part, string_part = value.split('-')
-    return int(numeric_part), string_part
+    # Assuming format like "Number-String" e.g., "10-ARG"
+    try:
+        parts = value.split('-')
+        numeric_part = int(parts[0])
+        string_part = '-'.join(parts[1:]) # Handle cases like "10-ARG-A"
+        return numeric_part, string_part
+    except:
+        # Fallback for unexpected formats
+        return float('inf'), value
 
-def find_matching_rows(df1, df2, col1, col2):
-    return df2[df2[col2].isin(df1[col1])]
+# Moved calculate_metrics to global scope
+def calculate_metrics(gt_series, pred_series, total_possible):
+    """Calculates TP, FP, FN, TN and standard metrics from 0/1 series."""
+    TP = ((pred_series == 1) & (gt_series == 1)).sum()
+    FP = ((pred_series == 1) & (gt_series == 0)).sum()
+    FN = ((pred_series == 0) & (gt_series == 1)).sum()
+    # TN calculation needs care. It's the total possible minus the observed states.
+    TN = total_possible - (TP + FP + FN)
+    TN = max(0, TN) # Ensure TN is not negative
+
+    Recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+    Precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+    TPR = Recall
+    FPR = FP / (FP + TN) if (FP + TN) > 0 else 0 # Specificity = TN / (TN+FP) = 1 - FPR
+    F1 = 2 * ((Precision * Recall) / (Precision + Recall)) if (Precision + Recall) > 0 else 0
+    mcc_denom = ((TP + FP) * (TP + FN) * (TN + FP) * (TN + FN))**(1/2)
+    MCC = (TP * TN - FP * FN) / mcc_denom if mcc_denom > 0 else 0
+
+    return {'TP': TP, 'FP': FP, 'FN': FN, 'TN': TN,
+            'Recall': Recall, 'Precision': Precision, 'TPR': TPR, 'FPR': FPR,
+            'F1': F1, 'MCC': MCC}
 
 def main():
     args = parse_arguments()
@@ -126,6 +155,9 @@ def main():
     input_dir = args.input_dir
     output_dir = args.output_dir
     output_file_dir = args.output_file_dir
+
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
 
     # Load labels.txt from input directory
     labels_path = os.path.join(input_dir, 'labels.txt')
@@ -151,6 +183,11 @@ def main():
     train_set = pd.read_table(train_path, delim_whitespace=True, header=None)
     train_set.columns = ['subject', 'relation', 'object', 'time_stamp']   
     
+    # Load valid.txt from input directory
+    valid_path = os.path.join(input_dir, 'valid.txt')
+    valid_set = pd.read_table(valid_path, delim_whitespace=True, header=None)
+    valid_set.columns = ['subject', 'relation', 'object', 'time_stamp']   
+
     # Load output file from output file directory
     output_path = os.path.join(output_file_dir)
     output = pd.read_table(output_path, delim_whitespace=True, header=None)
@@ -207,6 +244,9 @@ def main():
     last_time = np.max(train_set_post['time_stamp'])
     train_time_thrashold = last_time / 2
 
+    # Process valid_set
+    valid_set_post = set_names_df(valid_set, df_labels).drop_duplicates().reset_index(drop=True)
+
     # Define UNCOMMON pairs from train set
     a = train_set_post.loc[train_set_post['freq_count'] <= train_time_thrashold ]
     uncommon_pairs_train = a['pair'].unique() # Get unique uncommon pairs
@@ -260,8 +300,74 @@ def main():
         baseline_predictions_df['time_stamp'] = baseline_predictions_df['time_stamp'].astype(int)
         print(f"Baseline: Generated {len(baseline_predictions_df)} predictions.")
 
+    # --- Define Time and Pair Universes ---
+    # Initial ground truth and prediction DFs (just the observed interactions)
+    ground_truth_df = test_set_post[['subject_name', 'obj_name', 'pair', 'time_stamp']].drop_duplicates()
+    ground_truth_df['present'] = 1 # Mark ground truth interactions
+    predictions_df = output_post[['subject_name', 'obj_name', 'pair', 'time_stamp']].drop_duplicates()
+    predictions_df['present'] = 1 # Mark predicted interactions
 
-    # --- Load raw data for total calculation (needed for TN) ---
+    all_test_pairs = set(ground_truth_df['pair'].unique()) | set(predictions_df['pair'].unique())
+    all_possible_pairs = all_test_pairs # Focus on pairs observed in test/predictions
+
+    # Reuse test_timestamps from baseline section
+    if not test_timestamps:
+        # Handle case where test set might be empty or time column missing
+        test_timestamps = sorted(list(set(ground_truth_df['time_stamp'].unique()) | set(predictions_df['time_stamp'].unique())))
+        if not test_timestamps:
+            raise ValueError("Could not determine timestamps from test or prediction data.")
+    min_time, max_time = min(test_timestamps), max(test_timestamps)
+    time_points = len(test_timestamps)
+
+    # Create a complete grid of all possible pairs at all test times
+    all_pairs_time_grid = pd.MultiIndex.from_product(
+        [all_possible_pairs, test_timestamps], names=['pair', 'time_stamp']
+    ).to_frame(index=False)
+
+    # Merge ground truth and predictions onto the full grid
+    pair_map = ground_truth_df[['pair', 'subject_name', 'obj_name']].drop_duplicates().set_index('pair')
+
+    ground_truth_full = pd.merge(
+        all_pairs_time_grid, ground_truth_df[['pair', 'time_stamp', 'present']],
+        on=['pair', 'time_stamp'], how='left'
+    ).fillna({'present': 0})
+    ground_truth_full['present'] = ground_truth_full['present'].astype(int)
+    ground_truth_full = ground_truth_full.join(pair_map, on='pair')
+
+    predictions_full = pd.merge(
+        all_pairs_time_grid, predictions_df[['pair', 'time_stamp', 'present']],
+        on=['pair', 'time_stamp'], how='left'
+    ).fillna({'present': 0})
+    predictions_full['present'] = predictions_full['present'].astype(int)
+    predictions_full = predictions_full.join(pair_map, on='pair') # Use same map
+
+    # Create baseline_full similar to ground_truth_full/predictions_full
+    if not baseline_predictions_df.empty:
+        baseline_full = pd.merge(
+            all_pairs_time_grid, baseline_predictions_df[['pair', 'time_stamp']],
+            on=['pair', 'time_stamp'], how='left', indicator=True
+        )
+        baseline_full['present'] = np.where(baseline_full['_merge'] == 'both', 1, 0)
+        baseline_full = baseline_full.drop(columns=['_merge'])
+        baseline_full = baseline_full.join(pair_map, on='pair') # Add names
+    else:
+        # Create an empty dataframe with the right columns if baseline is empty
+        baseline_full = pd.DataFrame(columns=['pair', 'time_stamp', 'present', 'subject_name', 'obj_name'])
+        baseline_full['present'] = baseline_full['present'].astype(int)
+
+    # --- Define Evaluation Series and Output Path --- #
+    # Use the 'full' dataframes which include 0s for non-interactions
+    ground_truth_eval = ground_truth_full.set_index(['pair', 'time_stamp'])['present']
+    predictions_eval = predictions_full.set_index(['pair', 'time_stamp'])['present']
+    if not baseline_predictions_df.empty:
+        baseline_eval = baseline_full.set_index(['pair', 'time_stamp'])['present']
+    else:
+        # Ensure baseline_eval exists even if empty
+        baseline_eval = pd.Series(0, index=ground_truth_eval.index, name='present')
+    # Define scores file path early
+    scores_file_path = os.path.join(output_dir, "PerformanceMetrics.txt")
+
+    # --- Load raw data for total calculation (needed for TN) --- #
     with open(os.path.join(input_dir, "train.txt"), 'r') as fr: train_data = [[int(x) for x in line.split()] for line in fr]
     with open(os.path.join(input_dir, "valid.txt"), 'r') as fr: valid_data = [[int(x) for x in line.split()] for line in fr]
     with open(os.path.join(input_dir, "test.txt"), 'r') as fr: test_data = [[int(x) for x in line.split()] for line in fr]
@@ -270,433 +376,979 @@ def main():
     o = [item[2] for item in total_data]
     unique_s = len(np.unique(s))
     unique_o = len(np.unique(o))
-    total_possible_pairs_all = unique_o * unique_s
-    time_points = len(test_timestamps)
+    total_possible_s_o_pairs = unique_s * unique_o
+    total_possible_interactions_over_time = total_possible_s_o_pairs * len(test_timestamps)
 
+    # --- Calculate Stability Bins and Training Frequencies EARLY --- #
+    print("--- Calculating Training Set Frequencies and Stability Bins ---")
+    # Calculate bins and frequencies based on training data
+    stability_bins, pair_freq_train = bin_edges_by_frequency(train_set_post)
+    if stability_bins is None or pair_freq_train is None:
+        print("Warning: Could not calculate stability bins or training frequencies. Dependent analyses will be skipped.")
+        # Ensure variables are None if calculation failed
+        stability_bins = None
+        pair_freq_train = None
 
-    # --- Performance Calculation ---
-    scores_file_path = os.path.join(output_dir, "PerformanceMetrics.txt")
-    scores = open(scores_file_path,"w")
-
-    # Use consistent ground truth for comparisons: deduplicated test_set_post
-    ground_truth_test_df = test_set_post.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True)
-
-    # -- BASELINE Performance --
-    print("--- Calculating Performance for BASELINE (Predict all train pairs at all test times) ---", file=scores)
-    if not baseline_predictions_df.empty:
-        # Baseline predictions are already unique triplets by generation method
-        baseline_pred_triplets_df = baseline_predictions_df[['subject_name', 'obj_name', 'time_stamp']]
-
-        # Prepare triplets for set operations (string format for simplicity)
-        st_base = ground_truth_test_df["subject_name"].astype(str).to_list()
-        ot_base = ground_truth_test_df["obj_name"].astype(str).to_list()
-        tt_base = ground_truth_test_df["time_stamp"].astype(str).to_list()
-        triplet_test_base = set([st_base[i] + '_' + ot_base[i] + '_' + tt_base[i] for i in range(len(st_base))])
-
-        so_base = baseline_pred_triplets_df["subject_name"].astype(str).to_list()
-        oo_base = baseline_pred_triplets_df["obj_name"].astype(str).to_list()
-        to_base = baseline_pred_triplets_df["time_stamp"].astype(str).to_list()
-        triplet_pred_base = set([so_base[i] + '_' + oo_base[i] + '_' + to_base[i] for i in range(len(so_base))])
-
-        TP_base = len(triplet_pred_base & triplet_test_base)
-        FP_base = len(triplet_pred_base - triplet_test_base)
-        FN_base = len(triplet_test_base - triplet_pred_base)
-        TN_base = max(0, total_possible_pairs_all * time_points - (TP_base + FP_base + FN_base)) # Ensure TN is not negative
-
-        # Avoid division by zero
-        Recall_base = TP_base / (TP_base + FN_base) if (TP_base + FN_base) > 0 else 0
-        Precision_base = TP_base / (TP_base + FP_base) if (TP_base + FP_base) > 0 else 0
-        TPR_base = Recall_base
-        FPR_base = FP_base / (FP_base + TN_base) if (FP_base + TN_base) > 0 else 0
-        F1_base = 2 * ((Precision_base * Recall_base) / (Precision_base + Recall_base)) if (Precision_base + Recall_base) > 0 else 0
-        mcc_denom_base = ((TP_base+FP_base)*(TP_base+FN_base)*(TN_base+FP_base)*(TN_base+FN_base))**(1/2)
-        MCC_base = (TP_base*TN_base - FP_base*FN_base) / mcc_denom_base if mcc_denom_base > 0 else 0
-        print("Performance metrics for BASELINE interactions:\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_base,Precision_base,TPR_base,FPR_base,F1_base,MCC_base),file=scores)
-    else:
-         print("Performance metrics for BASELINE interactions:\nCannot calculate metrics - no baseline predictions generated.\n", file=scores)
-
-    # -- MODEL Performance on ALL interactions
-    print("--- Calculating Performance for MODEL (ALL Interactions) ---", file=scores)
-    model_pred_all_df = output_post.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True) # Use model predictions
-
-    # Prepare triplets for set operations
-    st_all = ground_truth_test_df["subject_name"].astype(str).to_list() # Use consistent ground truth
-    ot_all = ground_truth_test_df["obj_name"].astype(str).to_list()
-    tt_all = ground_truth_test_df["time_stamp"].astype(str).to_list()
-    triplet_test_all = set([st_all[i] + '_' + ot_all[i] + '_' + tt_all[i] for i in range(len(st_all))])
-
-    so_all = model_pred_all_df["subject_name"].astype(str).to_list()
-    oo_all = model_pred_all_df["obj_name"].astype(str).to_list()
-    to_all = model_pred_all_df["time_stamp"].astype(str).to_list()
-    triplet_pred_all = set([so_all[i] + '_' + oo_all[i] + '_' + to_all[i] for i in range(len(so_all))])
-
-    TP_all = len(triplet_pred_all & triplet_test_all)
-    FP_all = len(triplet_pred_all - triplet_test_all)
-    FN_all = len(triplet_test_all - triplet_pred_all)
-    TN_all = max(0, total_possible_pairs_all * time_points - (TP_all + FP_all + FN_all)) # Ensure TN is not negative
-
-    Recall_all = TP_all / (TP_all + FN_all) if (TP_all + FN_all) > 0 else 0
-    Precision_all = TP_all / (TP_all + FP_all) if (TP_all + FP_all) > 0 else 0
-    TPR_all = Recall_all
-    FPR_all = FP_all / (FP_all + TN_all) if (FP_all + TN_all) > 0 else 0
-    F1_all = 2 * ((Precision_all * Recall_all) / (Precision_all + Recall_all)) if (Precision_all + Recall_all) > 0 else 0
-    mcc_denom_all = ((TP_all+FP_all)*(TP_all+FN_all)*(TN_all+FP_all)*(TN_all+FN_all))**(1/2)
-    MCC_all = (TP_all*TN_all - FP_all*FN_all) / mcc_denom_all if mcc_denom_all > 0 else 0
-    print("Performance metrics for MODEL (ALL interactions):\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_all,Precision_all,TPR_all,FPR_all,F1_all,MCC_all),file=scores)
-
-    # -- MODEL Performance on UNCOMMON interactions --
-    print("--- Calculating Performance for MODEL (UNCOMMON Interactions - Freq <= Threshold in Train Set) ---", file=scores)
-    # Use filtered ground truth and predictions
-    ground_truth_uncommon_df = test_filtered_uncommon.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True)
-    model_pred_uncommon_df = predicted_filtered_uncommon.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True)
-
-    if not ground_truth_uncommon_df.empty or not model_pred_uncommon_df.empty:
-        st_un = ground_truth_uncommon_df["subject_name"].astype(str).to_list()
-        ot_un = ground_truth_uncommon_df["obj_name"].astype(str).to_list()
-        tt_un = ground_truth_uncommon_df["time_stamp"].astype(str).to_list()
-        triplet_test_un = set([st_un[i] + '_' + ot_un[i] + '_' + tt_un[i] for i in range(len(st_un))])
-
-        so_un = model_pred_uncommon_df["subject_name"].astype(str).to_list()
-        oo_un = model_pred_uncommon_df["obj_name"].astype(str).to_list()
-        to_un = model_pred_uncommon_df["time_stamp"].astype(str).to_list()
-        triplet_pred_un = set([so_un[i] + '_' + oo_un[i] + '_' + to_un[i] for i in range(len(so_un))])
-
-        TP_un = len(triplet_pred_un & triplet_test_un)
-        FP_un = len(triplet_pred_un - triplet_test_un)
-        FN_un = len(triplet_test_un - triplet_pred_un)
-        # Calculate total possible uncommon interactions based on unique subjects/objects in 'a'
-        sol_un = len(a["subject"].unique())
-        ool_un = len(a["object"].unique())
-        total_threshold_un = sol_un * ool_un
-        # TN_un refers to the space of possible *uncommon* pairs over time
-        TN_un = max(0, total_threshold_un * time_points - (TP_un + FP_un + FN_un))
-
-        Recall_un = TP_un / (TP_un + FN_un) if (TP_un + FN_un) > 0 else 0
-        Precision_un = TP_un / (TP_un + FP_un) if (TP_un + FP_un) > 0 else 0
-        TPR_un = Recall_un
-        FPR_un = FP_un / (FP_un + TN_un) if (FP_un + TN_un) > 0 else 0
-        F1_un = 2 * ((Precision_un * Recall_un) / (Precision_un + Recall_un)) if (Precision_un + Recall_un) > 0 else 0
-        mcc_denom_un = ((TP_un+FP_un)*(TP_un+FN_un)*(TN_un+FP_un)*(TN_un+FN_un))**(1/2)
-        MCC_un = (TP_un*TN_un - FP_un*FN_un) / mcc_denom_un if mcc_denom_un > 0 else 0
-        print("Performance Metrics for MODEL (UNCOMMON interactions):\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_un,Precision_un,TPR_un,FPR_un,F1_un,MCC_un),file=scores)
-    else:
-        print("Performance Metrics for MODEL (UNCOMMON interactions):\nNo uncommon interactions found in test/predictions based on training threshold.\n", file=scores)
-
-    # -- MODEL Performance on COMMON interactions --
-    print("--- Calculating Performance for MODEL (COMMON Interactions - Freq > Threshold in Train Set) ---", file=scores)
-    # Use filtered ground truth and predictions
-    ground_truth_common_df = test_filtered_common.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True)
-    model_pred_common_df = predicted_filtered_common.drop_duplicates(subset=['subject_name', 'obj_name', 'time_stamp']).reset_index(drop=True)
-
-    if not ground_truth_common_df.empty or not model_pred_common_df.empty:
-        st_common = ground_truth_common_df["subject_name"].astype(str).to_list()
-        ot_common = ground_truth_common_df["obj_name"].astype(str).to_list()
-        tt_common = ground_truth_common_df["time_stamp"].astype(str).to_list()
-        triplet_test_common = set([st_common[i] + '_' + ot_common[i] + '_' + tt_common[i] for i in range(len(st_common))])
-
-        so_common = model_pred_common_df["subject_name"].astype(str).to_list()
-        oo_common = model_pred_common_df["obj_name"].astype(str).to_list()
-        to_common = model_pred_common_df["time_stamp"].astype(str).to_list()
-        triplet_pred_common = set([so_common[i] + '_' + oo_common[i] + '_' + to_common[i] for i in range(len(so_common))])
-
-        TP_common = len(triplet_pred_common & triplet_test_common)
-        FP_common = len(triplet_pred_common - triplet_test_common)
-        FN_common = len(triplet_test_common - triplet_pred_common)
-        # Calculate total possible common interactions based on unique subjects/objects in 'b'
-        sol_common = len(b["subject"].unique())
-        ool_common = len(b["object"].unique())
-        total_threshold_common = sol_common * ool_common
-        # TN_common refers to the space of possible *common* pairs over time
-        TN_common = max(0, total_threshold_common * time_points - (TP_common + FP_common + FN_common))
-
-        Recall_common = TP_common / (TP_common + FN_common) if (TP_common + FN_common) > 0 else 0
-        Precision_common = TP_common / (TP_common + FP_common) if (TP_common + FP_common) > 0 else 0
-        TPR_common = Recall_common
-        FPR_common = FP_common / (FP_common + TN_common) if (FP_common + TN_common) > 0 else 0
-        F1_common = 2 * ((Precision_common * Recall_common) / (Precision_common + Recall_common)) if (Precision_common + Recall_common) > 0 else 0
-        mcc_denom_common = ((TP_common+FP_common)*(TP_common+FN_common)*(TN_common+FP_common)*(TN_common+FN_common))**(1/2)
-        MCC_common = (TP_common*TN_common - FP_common*FN_common) / mcc_denom_common if mcc_denom_common > 0 else 0
-        print("Performance Metrics for MODEL (COMMON interactions - Freq > Threshold):\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(Recall_common,Precision_common,TPR_common,FPR_common,F1_common,MCC_common),file=scores)
-    else:
-        print("Performance Metrics for MODEL (COMMON interactions - Freq > Threshold):\nNo common interactions found in test/predictions based on training threshold.\n", file=scores)
-
-    scores.close()
-"""
-    df = pd.DataFrame(total_data, columns=['subject', 'relation', 'object', 'time_stamp'])
-
-    df_set_post = set_names_df(df, df_labels).drop_duplicates().reset_index(drop=True)
-    df_set_post_process = pd.DataFrame()
-    df_set_post_process['subject'] = df_set_post['subject_name']
-    df_set_post_process['object'] = df_set_post['obj_name']
-    df_set_post_process['time_stamp'] = df_set_post['time_stamp']
-    df_set_post_process['relation'] = df_set_post['relation']
-    df_set_post_process['pair_relation'] = df_set_post['pair_relation']
-    df_set_post_process['pair'] = df_set_post['pair']
-    df_set_post_process['relation'].replace({0: 'H-bond'}, inplace=True)
-    df_set_post_process['relation'].replace({1: 'Hydrophobic'}, inplace=True)
-    df_set_post_process['relation'].replace({2: 'Ionic'}, inplace=True)
-    df_set_post_process['Type'] = "Ground_truth"
-    all_def_filtered = df_set_post_process.groupby(['time_stamp', 'pair']).head(1)
-
-    df_set_post_process_merged = pd.concat([df_set_post_process, output_post_process], axis=0)
-    df_set_post_process_merged.fillna("Predicted_Set", inplace=True)
-    df_sorted = df_set_post_process_merged.sort_values(by="subject")
-
-    # Generate heatmap for all pairwise interactions
-
-    vmin = 0  # Minimum value
-    vmax = 100  # Maximum value
-
-    all_interactions = get_res_heatmap_df_output(all_def_filtered)
-    min_value_all = all_interactions['values'].min()
-    max_value_all = all_interactions['values'].max()
-    all_interactions['freq'] = 1 + (all_interactions['values'] - min_value_all) / (max_value_all - min_value_all) * (100 - 1)
-    all_interactions['freq'] = all_interactions['freq'].apply(lambda x: round(x, 2))
-    all_interactions['numeric_order'] = all_interactions['residue_a'].apply(lambda x: int(x.split('-')[0]) if x.split('-')[0].isdigit() else float('inf'))
-    all_interactions_sorted = all_interactions.sort_values(by='numeric_order', ascending=True)
-    all_interactions_sorted['freq'] = all_interactions_sorted['freq'].round().astype(int)
-    test_pivot_all = pd.pivot_table(all_interactions_sorted, index='residue_a', columns='residue_b', values='freq', aggfunc='sum', fill_value=0)
-    test_pivot_all = test_pivot_all.reindex(all_interactions_sorted['residue_a'].unique())
-
-    fig, ax = plt.subplots(figsize=(15, 12))
-
-    ax = sns.heatmap(test_pivot_all, cmap='Blues', linewidths=0.5, linecolor='gray', annot_kws={"weight": "bold", "size": 16}, vmin=vmin, vmax=vmax, annot=True, fmt=".0f")
-    ax.set_title('All Pairwise Interactions for MD Simulation', size=25, weight="bold")
-    ax.set_xlabel('TF', size=25, weight="bold")
-    ax.set_ylabel("")
-    for t in ax.texts:
-        if float(t.get_text()) > 0:
-            t.set_text(t.get_text())  # if the value is greater than 0 then I set the text 
+    # --- Performance Calculation (Write to File) --- #
+    print("--- Calculating Overall Performance Metrics ---")
+    with open(scores_file_path, "w") as scores: # Open file for writing metrics
+        # -- BASELINE Performance --
+        print("--- Calculating Performance for BASELINE (Predict all train pairs at all test times) ---", file=scores)
+        if not baseline_predictions_df.empty:
+            # Align indices before calculation
+            common_index = ground_truth_eval.index.intersection(baseline_eval.index)
+            baseline_metrics = calculate_metrics(ground_truth_eval[common_index], baseline_eval[common_index], total_possible_interactions_over_time)
+            print("Performance metrics for BASELINE interactions:\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(
+                baseline_metrics['Recall'], baseline_metrics['Precision'], baseline_metrics['TPR'], baseline_metrics['FPR'], baseline_metrics['F1'], baseline_metrics['MCC']), file=scores)
         else:
-            t.set_text("")  # if not it sets an empty text
-    ax.set_yticklabels(test_pivot_all.index, size=20, weight="bold")
-    ax.set_xticklabels(test_pivot_all.columns, size=20, weight="bold")
+             print("Performance metrics for BASELINE interactions:\nCannot calculate metrics - no baseline predictions generated.\n", file=scores)
+    
+        # -- MODEL Performance on ALL interactions --
+        print("--- Calculating Performance for MODEL (ALL Interactions) ---", file=scores)
+        # Align indices
+        common_index_model = ground_truth_eval.index.intersection(predictions_eval.index)
+        all_metrics = calculate_metrics(ground_truth_eval[common_index_model], predictions_eval[common_index_model], total_possible_interactions_over_time)
+        print("Performance metrics for MODEL (ALL interactions):\nRecall: {:.4f}, Precision: {:.4f}, TPR: {:.4f}, FPR: {:.4f}, F1: {:.4f}, MCC: {:.4f}\n".format(
+            all_metrics['Recall'], all_metrics['Precision'], all_metrics['TPR'], all_metrics['FPR'], all_metrics['F1'], all_metrics['MCC']), file=scores)
+    # Scores file is closed here implicitly by 'with' statement
 
-    cbar1 = ax.collections[0].colorbar
-    cbar1.ax.tick_params(labelsize=25)
-    cbar1.set_label('Frequency', size=25, weight="bold")
+    # --- Analysis 1: True vs. Predicted Interactions Over Time --- #
+    print("--- Generating Analysis 1: Time Dynamics Plots ---")
+    # Pass valid_set_post for including validation data in heatmap
+    plot_time_vs_pair_heatmaps(ground_truth_full, predictions_full, valid_set_post, output_dir, num_pairs_to_show=50, valid_steps_to_show=20)
+    representative_pairs_test = select_representative_pairs(ground_truth_full, n=7)
+    plot_sample_trajectories(ground_truth_full, predictions_full, valid_set_post, representative_pairs_test, output_dir)
+    plot_flip_rate_comparison(ground_truth_full, predictions_full, test_timestamps, output_dir, window_size=10)
+    print("Analysis 1 plots saved.")
 
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'heatmap_all.png'), dpi=300, bbox_inches='tight')
-    plt.show()
+    # --- Analysis 1b: Trajectories based on Training Frequency Selection --- #
+    print("--- Generating Analysis 1b: Sample Trajectories (Selected by Train Freq) ---")
+    # Check if training frequency data is available
+    if pair_freq_train is not None:
+        representative_pairs_train = select_representative_pairs_train_freq(train_set_post, n=7)
+        # Pass pair_freq_train for titles
+        plot_sample_trajectories_train_selection(ground_truth_full, predictions_full, valid_set_post, representative_pairs_train, pair_freq_train, output_dir)
+        print("Analysis 1b plot saved.")
+    else:
+        print("Skipping Analysis 1b: Training frequency data not available.")
 
-    # Generate plot for interactions over time
+    # --- Analysis 2: Model Predictions Over Time --- #
+    print("--- Generating Analysis 2: Performance Over Time Plots ---")
+    plot_metrics_vs_time(ground_truth_eval, predictions_eval, test_timestamps, total_possible_s_o_pairs, output_dir)
+    plot_cumulative_error(ground_truth_eval, predictions_eval, test_timestamps, output_dir)
+    print("Analysis 2 plots saved.")
 
-    fig = go.Figure()
+    # --- Analysis 3: Performance by Interaction Stability --- #
+    print("--- Generating Analysis 3: Stability-Based Performance ---")
+    # Check if stability bins were calculated successfully
+    if stability_bins is not None:
+        # Append to the metrics file (already created)
+        plot_metrics_by_stability(ground_truth_eval, predictions_eval, stability_bins, total_possible_s_o_pairs, output_dir, scores_file_path)
+        # Calculate per-edge F1 scores on the test set
+        f1_df = calculate_per_edge_f1(ground_truth_full, predictions_full)
+        if f1_df is not None:
+            # Plot F1 distribution by stability bin
+            plot_f1_distribution_by_stability(f1_df, stability_bins, output_dir)
+            # Plot Train Frequency vs Test F1 Scatter plot (requires pair_freq_train)
+            if pair_freq_train is not None:
+                 plot_train_freq_vs_test_f1(pair_freq_train, f1_df, stability_bins, output_dir)
+            else:
+                 print("Skipping Train Freq vs Test F1 scatter plot: Training frequency data not available.")
+        print("Analysis 3 plots and metrics saved.")
+    else:
+        print("Skipping stability analysis: Stability bins not calculated.")
 
-    sun = df_sorted[df_sorted["Type"] == "Ground_truth"]
-    sun_2 = df_sorted[df_sorted["Type"] == "Predicted_Set"]
-
-    # Add traces
-    fig.add_trace(go.Scatter(x=sun["time_stamp"], y=sun["pair"], mode='markers',
-                             marker_color="#0074D9", marker_symbol="arrow", name="Ground Truth"))
-    fig.add_trace(go.Scatter(x=sun_2["time_stamp"], y=sun_2["pair"], mode='markers', opacity=0.4,
-                             marker_color="#FFA500", marker_symbol="diamond", name="Predicted"))
-    fig.update_layout(height=1700, width=800, template="plotly_white",
-                      title="<b>Chart illustrating how interactions vary with time</b>", title_x=0.5,
-                      xaxis_title="<b>Time</b>",
-                      yaxis_title="<b>Pairs</b>")
-
-    fig.write_image(os.path.join(output_dir, "interactions_during_time.png"), scale=6)
-
-    print("Processing complete. Data saved to:", output_csv_path, prediction_csv_path, "heatmap_all.png", "interactions_during_time.png")
-
-
-    # Load ground truth and predicted data
-    ground_truth = pd.read_csv(os.path.join(output_dir, "ground_truth.csv"))
-    predicted = pd.read_csv(os.path.join(output_dir, "prediction.csv"))
-    ground_truth["freq"] = ground_truth["freq"].astype(int)
-    predicted["freq"] = predicted["freq"].astype(int)
-
-    ground_truth['pair'] = ground_truth['residue_a'] + '-' + ground_truth['residue_b']
-    ground_truth['label'] = "False Negative (FN)"
-    predicted['label'] = "False Positive (FP)"
-    ground_truth['relation'].replace({0: 'H-bond', 1: 'Hydrophobic', 2: 'Ionic'}, inplace=True)
-    ground_truth_sorted = ground_truth['residue_a'].apply(custom_sort).sort_values().index
-    ground_truth_sorted = ground_truth.loc[ground_truth_sorted]
-    predicted_sorted = predicted['residue_a'].apply(custom_sort).sort_values().index
-    predicted_sorted = predicted.loc[predicted_sorted]
-
-    vmin = 0  # Minimum value
-    vmax = 100  # Maximum value
-
-    filtered_df = test_set_post_process.groupby(['time_stamp', 'pair']).head(1)
-    filtered_df_split = get_res_heatmap_df_output(filtered_df)
-    filtered_df_split['pair'] = filtered_df_split['residue_a'] + '-' + filtered_df_split['residue_b']
-    min_value_filtered_df_split = filtered_df_split['values'].min()
-    max_value_filtered_df_split = filtered_df_split['values'].max()
-    filtered_df_split['freq'] = 1 + (filtered_df_split['values'] - min_value_filtered_df_split) / (max_value_filtered_df_split - min_value_filtered_df_split) * (100 - 1)
-    filtered_df_split['freq'] = filtered_df_split['freq'].apply(lambda x: round(x, 2))
-    filtered_df_split_sorted = filtered_df_split['residue_a'].apply(custom_sort).sort_values().index
-    filtered_df_split_sorted = filtered_df_split.loc[filtered_df_split_sorted]
-    filtered_df_split_sorted['freq'] = filtered_df_split_sorted['freq'].round().astype(int)
-    filtered_df_split_sorted['label'] = "False Negative (FN)"
-
-    unique_rows_filtered_df_split_sorted = filtered_df_split_sorted[~filtered_df_split_sorted["pair"].isin(predicted_sorted["pair"])]
-
-    filtered_df_split_sorted_heatmap = filtered_df_split.sort_values(by="residue_a")
-    filtered_df_split_sorted_heatmap['freq'] = filtered_df_split_sorted_heatmap['freq'].round().astype(int)
-
-    res_merg_split = pd.merge(filtered_df_split_sorted, predicted_sorted, how='outer')
-    res = res_merg_split[['residue_a', 'residue_b', 'pair']]
-    res_drop = res.drop_duplicates()
-
-    res_merg_split_heatmap = pd.merge(filtered_df_split_sorted_heatmap, predicted_sorted,how='outer')
-    res_heatmap = res_merg_split_heatmap[['residue_a', 'residue_b','pair']]
-    res_drop_heatmap = res_heatmap.drop_duplicates()
-
-    res_merg_ground_truth_heatmap = pd.merge(res_drop_heatmap, filtered_df_split_sorted_heatmap,how='outer')
-    res_merg_predicted_heatmap = pd.merge(res_drop_heatmap, predicted_sorted,how='outer')
-
-    res_merg_ground_truth_heatmap['numeric_order'] = res_merg_ground_truth_heatmap['residue_a'].apply(lambda x: int(x.split('-')[0]) if x.split('-')[0].isdigit() else float('inf'))
-    res_merg_ground_truth_sorted_heatmap = res_merg_ground_truth_heatmap.sort_values(by='numeric_order', ascending=True)
-
-    res_merg_predicted_heatmap['numeric_order'] = res_merg_predicted_heatmap['residue_a'].apply(lambda x: int(x.split('-')[0]) if x.split('-')[0].isdigit() else float('inf'))
-    res_merg_predicted_sorted_heatmap = res_merg_predicted_heatmap.sort_values(by='numeric_order', ascending=True)
-
-    test_pivot_heatmap = pd.pivot_table(res_merg_ground_truth_sorted_heatmap,index='residue_a', columns='residue_b', values='freq', aggfunc='sum', fill_value=0)
-    predicted_sorted_pivot_heatmap = pd.pivot_table(res_merg_predicted_sorted_heatmap,index='residue_a', columns='residue_b', values='freq', aggfunc='sum', fill_value=0)
-
-    test_pivot_sorted_heatmap = test_pivot_heatmap.reindex(res_merg_ground_truth_sorted_heatmap['residue_a'].unique())
-    predicted_pivot_sorted_heatmap = predicted_sorted_pivot_heatmap.reindex(res_merg_predicted_sorted_heatmap['residue_a'].unique())
-
-    merged_df_filtered = pd.concat([unique_rows_filtered_df_split_sorted, predicted_sorted], axis=0)
-    merged_df_filtered.fillna("Predicted_Set", inplace=True)
-
-    res_merg_ground_truth = pd.merge(res_drop, filtered_df_split_sorted, how='outer')
-    res_merg_predicted = pd.merge(res_drop, predicted_sorted, how='outer')
-
-    res_merg_ground_truth['numeric_order'] = res_merg_ground_truth['residue_a'].apply(lambda x: int(x.split('-')[0]) if x.split('-')[0].isdigit() else float('inf'))
-    res_merg_ground_truth_sorted = res_merg_ground_truth.sort_values(by='numeric_order', ascending=True)
-
-    res_merg_predicted['numeric_order'] = res_merg_predicted['residue_a'].apply(lambda x: int(x.split('-')[0]) if x.split('-')[0].isdigit() else float('inf'))
-    res_merg_predicted_sorted = res_merg_predicted.sort_values(by='numeric_order', ascending=True)
-
-    test_pivot_values = pd.pivot_table(res_merg_ground_truth, index='residue_a', columns='residue_b', values='values', aggfunc='sum', fill_value=0)
-    test_pivot_values_sorted = pd.pivot_table(res_merg_ground_truth_sorted, index='residue_a', columns='residue_b', values='values', aggfunc='sum', fill_value=0)
-    predicted_sorted_pivot_values = pd.pivot_table(res_merg_predicted, index='residue_a', columns='residue_b', values='values', aggfunc='sum', fill_value=0)
-    predicted_sorted_pivot_values_sorted = pd.pivot_table(res_merg_predicted_sorted, index='residue_a', columns='residue_b', values='values', aggfunc='sum', fill_value=0)
-
-    test_pivot_sorted_pivot_new = test_pivot_values_sorted.reindex(res_merg_ground_truth_sorted['residue_a'].unique())
-    predicted_sorted_pivot_pivot_new = predicted_sorted_pivot_values_sorted.reindex(res_merg_predicted_sorted['residue_a'].unique())
-
-    heatmap_similarity_score(test_pivot_values, predicted_sorted_pivot_values, os.path.join(output_dir, "heatmap_similarity_score.txt"))
-
-    print("Similarity score saved to heatmap_similarity_score.txt")
-
-    unique_rows_ground_truth = ground_truth_sorted[~ground_truth_sorted['pair'].isin(predicted_sorted['pair'])]
-    unique_rows_predicted = predicted_sorted[~predicted_sorted['pair'].isin(ground_truth_sorted['pair'])]
-    merged_df = pd.concat([ground_truth_sorted, predicted_sorted], axis=0)
-    merged_df.fillna("Predicted_Set", inplace=True)
-    unique_rows = pd.concat([unique_rows_filtered_df_split_sorted, unique_rows_predicted], axis=0)
-
-    unique_rows['numeric_order'] = unique_rows['pair'].apply(lambda x: int(x.split('-')[0]) if x.split('-')[0].isdigit() else float('inf'))
-    unique_rows = unique_rows.sort_values(by='numeric_order')
-
-    # False Positive (FP) ve False Negative (FN) olarak veriyi ayır ve sırala
-    df_fp = unique_rows[unique_rows['label'] == 'False Positive (FP)'].sort_values(by='numeric_order')
-    df_fn = unique_rows[unique_rows['label'] == 'False Negative (FN)'].sort_values(by='numeric_order')
-
-    # False Positive (FP) ve False Negative (FN) verilerini birleştir
-    df_sorted = pd.concat([df_fn, df_fp])
-
-    custom_colors = {'False Negative (FN)': 'Blue', 'False Positive (FP)': 'Purple'}
-    plt.figure(figsize=(24, 17))
-    ax = sns.barplot(y='freq', x='pair', hue='label', data=df_sorted, dodge=False, palette=custom_colors)
-    plt.xlabel('Pair Interactions', size=35, weight="bold")
-    plt.ylabel('Percentage', size=35, weight="bold")
-    plt.yticks(fontweight='bold', fontsize=30)
-    plt.xticks(fontweight='bold', fontsize=30)
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-    ax.axhline(y=50, color='black', linestyle='--', linewidth=2)
-    plt.legend(fontsize='large')
-    ax.set_ylim(0, 100)
-    plt.legend(fontsize='25')
-    plt.title('Prediction Accuracy Per Pairwise Interactions Over Test Set)', size=35, weight="bold")
-    plt.legend(fontsize='25')
-    plt.savefig(os.path.join(output_dir, 'Prediction_Accuracy.png'), dpi=300, bbox_inches='tight')
+    # --- Final Cleanup and Summary ---
+    print("--- Processing Summary ---")
+    # Re-print locations of all generated files
+    print("Performance metrics saved to:", scores_file_path)
+    print("Heatmap similarity score saved to:", os.path.join(output_dir, "heatmap_similarity_score.txt"))
+    # List all generated plots
+    plot_files = [f for f in os.listdir(output_dir) if f.endswith('.png')]
+    print("Generated plots saved in:", output_dir)
+    for plot_file in sorted(plot_files):
+        print(f"- {plot_file}")
 
 
-    print("Prediction accuracy plot saved to Prediction_Accuracy.png")
+# --- Analysis 1 Functions ---
 
-    # Create a 1x2 grid of subplots
-    fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+def plot_time_vs_pair_heatmaps(gt_full, pred_full, valid_set_post, output_dir, num_pairs_to_show=50, valid_steps_to_show=20):
+    """Plots vertically stacked heatmaps of GT, Preds, and Overlay, including last valid steps."""
+    # --- 1. Process Test Data --- 
+    gt_pivot_test = gt_full.pivot(index='pair', columns='time_stamp', values='present')
+    pred_pivot_test = pred_full.pivot(index='pair', columns='time_stamp', values='present')
 
-    # Plot the first heatmap
-    ax1 = sns.heatmap(test_pivot_sorted_heatmap, ax=axes[0], cmap='Blues',linewidths=0.5, linecolor='gray',annot_kws={"weight": "bold","size":14},vmin=vmin, vmax=vmax,annot=True,fmt=".0f")
-    axes[0].set_title('Ground Truth Interactions', size=20, weight="bold")
-    axes[0].set_xlabel('TF', size=20, weight="bold")
-    axes[0].set_ylabel("")
-    #axes[0].set_ylabel('A chain', size=20, weight="bold")
-    for t in ax1.texts:
-        if float(t.get_text())>0:
-            t.set_text(t.get_text()) #if the value is greater than 0 then I set the text 
+    common_pairs = gt_pivot_test.index.intersection(pred_pivot_test.index)
+    gt_pivot_test = gt_pivot_test.loc[common_pairs].fillna(0).astype(int)
+    pred_pivot_test = pred_pivot_test.loc[common_pairs].fillna(0).astype(int)
+
+    if len(common_pairs) > num_pairs_to_show:
+        pair_freq = gt_pivot_test.sum(axis=1).sort_values(ascending=False)
+        selected_pairs = pair_freq.head(num_pairs_to_show).index
+        gt_pivot_test = gt_pivot_test.loc[selected_pairs]
+        pred_pivot_test = pred_pivot_test.loc[selected_pairs]
+        plot_title_suffix = f' (Top {num_pairs_to_show} Pairs)'
+    else:
+        selected_pairs = common_pairs # Use all common pairs
+        plot_title_suffix = ' (All Common Pairs)'
+
+    # Sort pairs for better visualization
+    try:
+        sorted_index = gt_pivot_test.index.map(lambda x: tuple(custom_sort(p) for p in x.split('_')))
+        gt_pivot_test = gt_pivot_test.loc[sorted_index.sort_values().index]
+        gt_pivot_test.index = gt_pivot_test.index.map(lambda x: f"{x[0][0]}-{x[0][1]}_{x[1][0]}-{x[1][1]}" if isinstance(x, tuple) and len(x)==2 and isinstance(x[0], tuple) and isinstance(x[1], tuple) else x)
+        pred_pivot_test = pred_pivot_test.loc[gt_pivot_test.index]
+    except Exception as e:
+         print(f"Warning: Custom pair sorting failed ({e}). Falling back to simple string sort.")
+         gt_pivot_test = gt_pivot_test.sort_index()
+         pred_pivot_test = pred_pivot_test.loc[gt_pivot_test.index]
+
+    overlay_matrix_test = pd.DataFrame(0, index=gt_pivot_test.index, columns=gt_pivot_test.columns)
+    overlay_matrix_test[(gt_pivot_test == 1) & (pred_pivot_test == 0)] = 1 # FN
+    overlay_matrix_test[(gt_pivot_test == 0) & (pred_pivot_test == 1)] = 2 # FP
+    overlay_matrix_test[(gt_pivot_test == 1) & (pred_pivot_test == 1)] = 3 # TP
+
+    # --- 2. Process Validation Data --- 
+    valid_pivot = pd.DataFrame() # Default empty
+    last_valid_timestamps = []
+    if not valid_set_post.empty and valid_steps_to_show > 0:
+        all_valid_timestamps = sorted(valid_set_post['time_stamp'].unique())
+        if len(all_valid_timestamps) >= valid_steps_to_show:
+            last_valid_timestamps = all_valid_timestamps[-valid_steps_to_show:]
+            valid_data_filtered = valid_set_post[
+                (valid_set_post['time_stamp'].isin(last_valid_timestamps)) &
+                (valid_set_post['pair'].isin(selected_pairs)) # Use the same pairs as selected for test
+            ]
+            # Add 'present' column for validation data
+            # Use assign to avoid SettingWithCopyWarning
+            valid_data_filtered = valid_data_filtered.assign(present=1)
+            # Pivot validation data
+            valid_pivot = valid_data_filtered.pivot_table(
+                index='pair', columns='time_stamp', values='present', fill_value=0
+            )
+            # Ensure all selected pairs are present, fill missing with 0
+            valid_pivot = valid_pivot.reindex(gt_pivot_test.index, fill_value=0)
+            # Ensure columns are sorted numerically
+            valid_pivot = valid_pivot.reindex(sorted(valid_pivot.columns), axis=1)
         else:
-            t.set_text("") # if not it sets an empty text
-    ax1.set_yticklabels(test_pivot_sorted_heatmap.index, size = 15, weight="bold")
-    ax1.set_xticklabels(test_pivot_sorted_heatmap.columns, size = 15, weight="bold")
+            print(f"Warning: Not enough validation timestamps ({len(all_valid_timestamps)}) to show {valid_steps_to_show}.")
 
-    # Plot the second heatmap
-    ax2 = sns.heatmap(predicted_pivot_sorted_heatmap, ax=axes[1],yticklabels=False, cmap='Purples',linewidths=0.5, linecolor='gray',vmin=vmin, vmax=vmax,annot=True,fmt=".0f",annot_kws={"weight": "bold","size":14})
-    axes[1].set_title('Predicted Interactions', size=20, weight="bold")
-    axes[1].set_xlabel('TF', size=20, weight="bold")
-    axes[1].set_ylabel("")
-    #axes[1].set_ylabel('A chain', size=20, weight="bold")
-    for t in ax2.texts:
-        if float(t.get_text())>0:
-            t.set_text(t.get_text()) #if the value is greater than 0 then I set the text 
+    # --- 3. Combine Data --- 
+    if not valid_pivot.empty:
+        # Concatenate horizontally: Validation | Test
+        gt_combined = pd.concat([valid_pivot, gt_pivot_test], axis=1)
+        
+        # --- Fill prediction and overlay for validation period using validation ground truth --- 
+        # Prediction plot: Show validation GT values (0 or 1)
+        pred_combined = pd.concat([valid_pivot, pred_pivot_test], axis=1)
+        
+        # Overlay plot: Show TN (0) if valid GT is 0, TP (3) if valid GT is 1
+        overlay_valid_part = valid_pivot.replace({0: 0, 1: 3})
+        overlay_combined = pd.concat([overlay_valid_part, overlay_matrix_test], axis=1)
+        
+        valid_data_offset = len(last_valid_timestamps)
+    else:
+        # No validation data to show
+        gt_combined = gt_pivot_test
+        pred_combined = pred_pivot_test
+        overlay_combined = overlay_matrix_test
+        valid_data_offset = 0
+
+    # --- 4. Plotting --- 
+    cmap_gt = sns.color_palette(["#f0f0f0", "#0074D9"]) # Grey/Blue
+    cmap_pred = sns.color_palette(["#f0f0f0", "#FFA500"]) # Grey/Orange (Now used for assumed validation GT as well)
+    cmap_overlay = sns.color_palette(["#f0f0f0", "#0074D9", "#FFA500", "#2ecc71"]) # Grey(TN), Blue(FN), Orange(FP), Green(TP)
+    # Add short descriptions back to overlay labels
+    overlay_labels = ['TN (Correct Negative)', 'FN (Missed)', 'FP (False Positive)', 'TP (Correct Positive)']
+    
+    # Define colormaps for combined plots (No need for separate NaN color anymore)
+    cmap_pred_viz = mcolors.ListedColormap(cmap_pred) # Use Pred colors (Grey/Orange) for Validation GT + Test Pred
+    cmap_overlay_viz = mcolors.ListedColormap(cmap_overlay) # Use Overlay colors for Validation TN/TP + Test Overlay
+
+    # Setup vertically stacked figure - remove sharex
+    # Slightly increased height per label and width per timestamp
+    fig_height = max(12, len(gt_combined.index) * 0.6) 
+    fig_width = max(15, gt_combined.shape[1] * 0.25)
+    fig, axes = plt.subplots(3, 1, figsize=(fig_width, fig_height), sharex=False, sharey=True)
+
+    common_heatmap_kws = {"linewidths": 0.1, "linecolor": 'lightgray'} # Base kws, cbar and yticklabels handled per plot
+
+    current_yticklabels = gt_combined.index
+
+    # Plot Ground Truth (Validation + Test)
+    sns.heatmap(gt_combined, ax=axes[0], cmap=cmap_gt, cbar=False, yticklabels=current_yticklabels, **common_heatmap_kws)
+    axes[0].set_title('Ground Truth (Last Validation + Test)')
+    axes[0].set_ylabel('Residue Pair')
+    axes[0].tick_params(axis='x', labelbottom=True) # Ensure x-tick labels are visible
+    axes[0].set_xlabel('') # Remove x-axis title for top plot
+
+    # Plot Predictions (Validation GT + Test Predictions)
+    sns.heatmap(pred_combined.fillna(0).astype(int), ax=axes[1], cmap=cmap_pred_viz, vmin=0, vmax=1, cbar=False, yticklabels=current_yticklabels, **common_heatmap_kws)
+    axes[1].set_title('Predictions (Validation GT + Test Predictions)')
+    axes[1].set_ylabel('Residue Pair')
+    axes[1].tick_params(axis='x', labelbottom=True) # Ensure x-tick labels are visible
+    axes[1].set_xlabel('') # Remove x-axis title for middle plot
+
+    # Plot Overlay (Validation TN/TP + Test Overlay)
+    bounds_overlay = [0, 1, 2, 3, 4] # TN, FN, FP, TP
+    norm_overlay = mcolors.BoundaryNorm(bounds_overlay, cmap_overlay_viz.N)
+
+    cax = sns.heatmap(overlay_combined.fillna(0).astype(int), ax=axes[2], cmap=cmap_overlay_viz, norm=norm_overlay,
+                      cbar=True, yticklabels=current_yticklabels, **common_heatmap_kws, # Use common_heatmap_kws here too
+                      cbar_kws={"ticks": [0.5, 1.5, 2.5, 3.5], "label": "Result Type"}) # Place ticks in middle
+    axes[2].set_title('Overlay (Validation TN/TP + Test Result)')
+    axes[2].set_xlabel('Time Stamp') # Keep x-axis title only on bottom plot
+    axes[2].set_ylabel('Residue Pair')
+    axes[2].tick_params(axis='x', labelbottom=True) # Ensure x-tick labels are visible
+
+    # Set overlay colorbar labels (now simplified)
+    colorbar = cax.collections[0].colorbar
+    colorbar.set_ticklabels(overlay_labels)
+
+    # Dynamically adjust y-tick label font size
+    num_labels = len(current_yticklabels)
+    font_size = 10 # Default font size
+    if fig_height > 0 and num_labels > 0: # Avoid division by zero
+        space_per_label_pt = (fig_height / num_labels) * 72  # Available points per label
+        # Aim for font size to be a fraction of available space, capped
+        font_size = max(4, min(10, int(space_per_label_pt * 0.35)))
+    else: # Fallback if calculation is not possible (e.g., no labels)
+        if num_labels > 20: font_size = 8
+        if num_labels > 35: font_size = 6
+        if num_labels > 50: font_size = 5
+        if num_labels > 70: font_size = 4
+        
+    for ax in axes:
+        ax.tick_params(axis='y', labelsize=font_size)
+
+    # Add vertical line separator if validation data was included
+    if valid_data_offset > 0:
+        for ax in axes:
+            ax.axvline(x=valid_data_offset, color='red', linestyle='--', linewidth=2)
+            # Optionally add text annotation
+            ax.text(valid_data_offset / 2., ax.get_ylim()[0] * 1.02, 'Validation', 
+                    ha='center', va='bottom', color='red', fontsize=10, weight='bold')
+            ax.text(valid_data_offset + (gt_combined.shape[1] - valid_data_offset) / 2., ax.get_ylim()[0] * 1.02, 'Test', 
+                    ha='center', va='bottom', color='black', fontsize=10, weight='bold')
+
+    fig.suptitle(f'Interaction Dynamics: Validation History vs Test Prediction{plot_title_suffix}', fontsize=16, y=0.995)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    # Update filename
+    new_filename = 'heatmap_time_vs_pairs_VERTICAL_with_valid.png'
+    plt.savefig(os.path.join(output_dir, new_filename), dpi=300)
+    print(f"Saved stacked heatmap with validation data to: {new_filename}") 
+    plt.close(fig)
+
+
+def select_representative_pairs(gt_full, n=7):
+    """Selects n pairs representing a range of persistence levels based on TEST SET quantiles."""
+    # Calculate persistence (frequency) for pairs present at least once in the TEST ground truth
+    total_test_timestamps = gt_full['time_stamp'].nunique()
+    if total_test_timestamps == 0:
+        print("Warning: No timestamps found in test set ground truth.")
+        return []
+    pair_persistence = gt_full[gt_full['present'] == 1].groupby('pair')['present'].count() / total_test_timestamps
+    pair_persistence = pair_persistence.sort_values()
+
+    if pair_persistence.empty:
+        print("Warning: No persistent pairs found in ground truth.")
+        return []
+
+    num_pairs_available = len(pair_persistence)
+    print(f"Found {num_pairs_available} unique pairs with interactions in ground truth.")
+
+    if num_pairs_available <= n:
+        print(f"Selecting all {num_pairs_available} available pairs.")
+        return pair_persistence.index.tolist()
+
+    # Define quantiles to target (including min and max)
+    quantiles = [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]
+    if n != 7: # Adjust quantiles if n is different (simple linear spacing for now)
+        quantiles = np.linspace(0, 1, n)
+
+    selected_pairs = set()
+    # Use .quantile() which handles potential duplicates in persistence values better
+    quantile_values = pair_persistence.quantile(quantiles, interpolation='nearest') # Find nearest actual value
+
+    # Find indices corresponding to these quantile values
+    selected_indices = set()
+    for q_val in quantile_values:
+        # Find the index (pair name) closest to this persistence value
+        # Use idxmin() on the absolute difference to find the closest index
+        closest_idx = (pair_persistence - q_val).abs().idxmin()
+        selected_indices.add(closest_idx)
+
+    # Ensure we have exactly n pairs, adding more if duplicates were picked
+    additional_needed = n - len(selected_indices)
+    if additional_needed > 0:
+        print(f"Quantile selection yielded duplicates based on test freq. Adding {additional_needed} more pairs.")
+        available_indices = pair_persistence.index.difference(list(selected_indices))
+        if len(available_indices) >= additional_needed:
+            additional_pairs = np.random.choice(available_indices, additional_needed, replace=False)
+            selected_indices.update(additional_pairs)
         else:
-            t.set_text("") # if not it sets an empty text
+            selected_indices.update(available_indices)
+
+    final_selection = list(selected_indices)[:n]
+    print(f"Selected {len(final_selection)} representative pairs based on TEST SET persistence quantiles: {final_selection}")
+    return final_selection
+
+def select_representative_pairs_train_freq(train_set_post, n=7):
+    """Selects n pairs representing a range of persistence levels based on TRAINING SET quantiles."""
+    if train_set_post is None or train_set_post.empty:
+        print("Warning: Training set data is empty or None. Cannot select pairs by train frequency.")
+        return []
+        
+    # Calculate persistence (frequency) for pairs present at least once in the TRAINING set
+    total_train_timestamps = train_set_post['time_stamp'].nunique()
+    if total_train_timestamps == 0:
+        print("Warning: No timestamps found in training set.")
+        return []
+        
+    pair_counts_train = train_set_post.groupby('pair').size()
+    pair_persistence_train = pair_counts_train / total_train_timestamps
+    pair_persistence_train = pair_persistence_train.sort_values()
+    
+    if pair_persistence_train.empty:
+        print("Warning: No pairs found in training set after grouping.")
+        return []
+
+    num_pairs_available = len(pair_persistence_train)
+    print(f"Found {num_pairs_available} unique pairs with interactions in training set.")
+
+    if num_pairs_available <= n:
+        print(f"Selecting all {num_pairs_available} available training pairs.")
+        return pair_persistence_train.index.tolist()
+
+    # Define quantiles
+    quantiles = [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]
+    if n != 7:
+        quantiles = np.linspace(0, 1, n)
+
+    selected_indices = set()
+    quantile_values = pair_persistence_train.quantile(quantiles, interpolation='nearest')
+
+    for q_val in quantile_values:
+        closest_idx = (pair_persistence_train - q_val).abs().idxmin()
+        selected_indices.add(closest_idx)
+
+    additional_needed = n - len(selected_indices)
+    if additional_needed > 0:
+        print(f"Quantile selection yielded duplicates based on train freq. Adding {additional_needed} more pairs.")
+        available_indices = pair_persistence_train.index.difference(list(selected_indices))
+        if len(available_indices) >= additional_needed:
+            additional_pairs = np.random.choice(available_indices, additional_needed, replace=False)
+            selected_indices.update(additional_pairs)
+        else:
+            selected_indices.update(available_indices)
+
+    final_selection = list(selected_indices)[:n]
+    print(f"Selected {len(final_selection)} representative pairs based on TRAINING SET persistence quantiles: {final_selection}")
+    return final_selection
+
+
+def plot_sample_trajectories(gt_full, pred_full, valid_set_post, pairs, output_dir):
+    """Plots TEST SET ground truth vs predicted presence over time for selected pairs (selection based on TEST freq),
+    prefixed by VALIDATION SET ground truth."""
+    if not pairs:
+        print("No representative pairs selected (based on test freq), skipping trajectory plot.")
+        return
+
+    num_pairs = len(pairs)
+    fig_height = max(6, 2.5 * num_pairs)
+    fig, axes = plt.subplots(num_pairs, 1, figsize=(14, fig_height), sharex=True, squeeze=False) # Increased width for time
+    axes = axes.flatten()
+
+    # Determine the last timestamp of the validation set to draw a separator
+    last_valid_time = -1
+    if not valid_set_post.empty:
+        last_valid_time = valid_set_post['time_stamp'].max()
+
+    for i, pair in enumerate(pairs):
+        # Validation data for the pair
+        valid_pair_gt = pd.DataFrame()
+        if not valid_set_post.empty:
+            valid_pair_gt = valid_set_post[valid_set_post['pair'] == pair].sort_values('time_stamp')
+            # Ensure 'present' column for validation (assuming interaction means present=1)
+            if not valid_pair_gt.empty and 'present' not in valid_pair_gt.columns:
+                 valid_pair_gt = valid_pair_gt.assign(present=1)
+
+
+        # Test data for the pair
+        gt_pair_test = gt_full[gt_full['pair'] == pair].sort_values('time_stamp')
+        pred_pair_test = pred_full[pred_full['pair'] == pair].sort_values('time_stamp')
+
+        # Combine validation and test ground truth
+        combined_gt_list = []
+        if not valid_pair_gt.empty:
+            combined_gt_list.append(valid_pair_gt[['time_stamp', 'present']])
+        if not gt_pair_test.empty:
+            combined_gt_list.append(gt_pair_test[['time_stamp', 'present']])
+        
+        combined_gt_df = pd.DataFrame()
+        if combined_gt_list:
+            combined_gt_df = pd.concat(combined_gt_list).drop_duplicates(subset=['time_stamp'], keep='first').sort_values('time_stamp')
+
+        # Prepare prediction series: validation GT for validation period, actual predictions for test period
+        combined_pred_list = []
+        if not valid_pair_gt.empty: # Use validation GT as "prediction" for validation part
+             combined_pred_list.append(valid_pair_gt[['time_stamp', 'present']])
+        if not pred_pair_test.empty:
+            combined_pred_list.append(pred_pair_test[['time_stamp', 'present']])
+
+        combined_pred_df = pd.DataFrame()
+        if combined_pred_list:
+            combined_pred_df = pd.concat(combined_pred_list).drop_duplicates(subset=['time_stamp'], keep='first').sort_values('time_stamp')
+
+
+        # Determine the full time range for plotting
+        all_times = set()
+        if not combined_gt_df.empty: all_times.update(combined_gt_df['time_stamp'])
+        if not combined_pred_df.empty: all_times.update(combined_pred_df['time_stamp'])
+        
+        if not all_times:
+            axes[i].set_title(f'Pair: {pair} (No data available)')
+            axes[i].axis('off')
+            continue
             
-    #ax2.set_yticklabels(predicted_160_20_20_sorted_pivot.index, size = 15, weight="bold")
-    ax2.set_xticklabels(predicted_pivot_sorted_heatmap.columns, size = 15, weight="bold")
-    # Add colorbars to each heatmap
-    cbar1 = axes[0].collections[0].colorbar
-    cbar2 = axes[1].collections[0].colorbar
-    cbar1.ax.tick_params(labelsize=20)
-    cbar2.ax.tick_params(labelsize=20)
-    cbar1.set_label('Frequency',size=20, weight="bold")
-    cbar2.set_label('Frequency',size=20, weight="bold")
+        time_range_sorted = sorted(list(all_times))
 
-    # Adjust the layout
+        # Reindex to full time range
+        gt_plot = pd.Series(index=time_range_sorted, dtype='float64')
+        if not combined_gt_df.empty:
+            gt_plot = combined_gt_df.set_index('time_stamp')['present'].reindex(time_range_sorted, fill_value=0)
+
+        pred_plot = pd.Series(index=time_range_sorted, dtype='float64')
+        if not combined_pred_df.empty:
+            pred_plot = combined_pred_df.set_index('time_stamp')['present'].reindex(time_range_sorted, fill_value=0)
+
+
+        axes[i].step(gt_plot.index, gt_plot.values, where='post', label='Ground Truth (Valid+Test)', color='#0074D9', linewidth=1.5)
+        axes[i].step(pred_plot.index, pred_plot.values + 0.05, where='post', label='Prediction (Valid GT+Test Pred)', color='#FFA500', linestyle='--', linewidth=1.5)
+
+        # Add vertical line separator
+        if last_valid_time != -1 and last_valid_time < time_range_sorted[-1] : # Only if valid data exists and is before end of test
+             axes[i].axvline(x=last_valid_time + 0.5, color='red', linestyle='--', linewidth=1.2, label='Valid/Test Cutoff')
+             # Add text annotations for Valid and Test periods
+             min_plot_time, max_plot_time = time_range_sorted[0], time_range_sorted[-1]
+             if last_valid_time >= min_plot_time: # Check if valid period is visible
+                 axes[i].text((min_plot_time + last_valid_time) / 2, 1.08, 'Validation', ha='center', va='bottom', color='red', fontsize=9)
+             if last_valid_time < max_plot_time: # Check if test period is visible
+                 axes[i].text((last_valid_time + 1 + max_plot_time) / 2, 1.08, 'Test', ha='center', va='bottom', color='black', fontsize=9)
+
+
+        gt_persistence_test = gt_pair_test['present'].mean() if not gt_pair_test.empty else 0 # Persistence calculated on TEST data
+        axes[i].set_title(f'Pair: {pair} (Test Persistence: {gt_persistence_test:.2f})')
+        axes[i].set_yticks([0, 1])
+        axes[i].set_yticklabels(['Off', 'On'])
+        axes[i].set_ylim(-0.1, 1.15) # Adjusted ylim slightly for text
+        axes[i].legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize='small') # Move legend outside
+        axes[i].grid(True, axis='y', linestyle=':', alpha=0.7)
+
+        if i == num_pairs - 1:
+            axes[i].set_xlabel('Time Stamp (Validation + Test)')
+        else:
+            axes[i].tick_params(axis='x', labelbottom=False)
+
+    fig.suptitle('Sample Pair Trajectories: Validation Ground Truth + Test Performance (Pairs Selected by Test Freq.)', fontsize=14, y=0.99)
+    plt.tight_layout(rect=[0, 0.03, 0.9, 0.97]) # Adjust for legend
+    plt.savefig(os.path.join(output_dir, 'sample_pair_trajectories_with_validation.png'), dpi=300) # New filename
+    plt.close(fig)
+
+def plot_sample_trajectories_train_selection(gt_full, pred_full, valid_set_post, pairs_selected_by_train, pair_freq_train, output_dir):
+    """Plots TEST SET ground truth vs predicted presence over time for selected pairs (selection based on TRAIN freq),
+    prefixed by VALIDATION SET ground truth."""
+    if not pairs_selected_by_train:
+        print("No representative pairs selected based on train freq, skipping trajectory plot.")
+        return
+    if pair_freq_train is None:
+         print("Warning: Training frequency data not available for titles. Skipping trajectory plot.")
+         return
+
+    num_pairs = len(pairs_selected_by_train)
+    fig_height = max(6, 2.5 * num_pairs)
+    fig, axes = plt.subplots(num_pairs, 1, figsize=(14, fig_height), sharex=True, squeeze=False) # Increased width
+    axes = axes.flatten()
+
+    last_valid_time = -1
+    if not valid_set_post.empty:
+        last_valid_time = valid_set_post['time_stamp'].max()
+
+    for i, pair in enumerate(pairs_selected_by_train):
+        # Validation data
+        valid_pair_gt = pd.DataFrame()
+        if not valid_set_post.empty:
+            valid_pair_gt = valid_set_post[valid_set_post['pair'] == pair].sort_values('time_stamp')
+            if not valid_pair_gt.empty and 'present' not in valid_pair_gt.columns:
+                valid_pair_gt = valid_pair_gt.assign(present=1)
+        
+        # Test data
+        gt_pair_test = gt_full[gt_full['pair'] == pair].sort_values('time_stamp')
+        pred_pair_test = pred_full[pred_full['pair'] == pair].sort_values('time_stamp')
+
+        # Combine validation and test ground truth
+        combined_gt_list = []
+        if not valid_pair_gt.empty: combined_gt_list.append(valid_pair_gt[['time_stamp', 'present']])
+        if not gt_pair_test.empty: combined_gt_list.append(gt_pair_test[['time_stamp', 'present']])
+        combined_gt_df = pd.DataFrame()
+        if combined_gt_list:
+            combined_gt_df = pd.concat(combined_gt_list).drop_duplicates(subset=['time_stamp'], keep='first').sort_values('time_stamp')
+
+        # Prepare prediction series
+        combined_pred_list = []
+        if not valid_pair_gt.empty: combined_pred_list.append(valid_pair_gt[['time_stamp', 'present']])
+        if not pred_pair_test.empty: combined_pred_list.append(pred_pair_test[['time_stamp', 'present']])
+        combined_pred_df = pd.DataFrame()
+        if combined_pred_list:
+            combined_pred_df = pd.concat(combined_pred_list).drop_duplicates(subset=['time_stamp'], keep='first').sort_values('time_stamp')
+            
+        all_times = set()
+        if not combined_gt_df.empty: all_times.update(combined_gt_df['time_stamp'])
+        if not combined_pred_df.empty: all_times.update(combined_pred_df['time_stamp'])
+
+        if not all_times:
+            train_persistence = pair_freq_train.get(pair, 0)
+            axes[i].set_title(f'Pair: {pair} (Train Persistence: {train_persistence:.2f}) (No Valid/Test Data)')
+            axes[i].axis('off')
+            continue
+        
+        time_range_sorted = sorted(list(all_times))
+
+        gt_plot = pd.Series(index=time_range_sorted, dtype='float64')
+        if not combined_gt_df.empty:
+            gt_plot = combined_gt_df.set_index('time_stamp')['present'].reindex(time_range_sorted, fill_value=0)
+
+        pred_plot = pd.Series(index=time_range_sorted, dtype='float64')
+        if not combined_pred_df.empty:
+            pred_plot = combined_pred_df.set_index('time_stamp')['present'].reindex(time_range_sorted, fill_value=0)
+
+        axes[i].step(gt_plot.index, gt_plot.values, where='post', label='Ground Truth (Valid+Test)', color='#0074D9', linewidth=1.5)
+        axes[i].step(pred_plot.index, pred_plot.values + 0.05, where='post', label='Prediction (Valid GT+Test Pred)', color='#FFA500', linestyle='--', linewidth=1.5)
+
+        if last_valid_time != -1 and last_valid_time < time_range_sorted[-1]:
+            axes[i].axvline(x=last_valid_time + 0.5, color='red', linestyle='--', linewidth=1.2, label='Valid/Test Cutoff')
+            min_plot_time, max_plot_time = time_range_sorted[0], time_range_sorted[-1]
+            if last_valid_time >= min_plot_time:
+                 axes[i].text((min_plot_time + last_valid_time) / 2, 1.08, 'Validation', ha='center', va='bottom', color='red', fontsize=9)
+            if last_valid_time < max_plot_time:
+                 axes[i].text((last_valid_time + 1 + max_plot_time) / 2, 1.08, 'Test', ha='center', va='bottom', color='black', fontsize=9)
+
+        train_persistence = pair_freq_train.get(pair, 0) # Get TRAIN persistence for the title
+        axes[i].set_title(f'Pair: {pair} (Train Persistence: {train_persistence:.2f})')
+        axes[i].set_yticks([0, 1])
+        axes[i].set_yticklabels(['Off', 'On'])
+        axes[i].set_ylim(-0.1, 1.15)
+        axes[i].legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize='small')
+        axes[i].grid(True, axis='y', linestyle=':', alpha=0.7)
+
+        if i == num_pairs - 1:
+            axes[i].set_xlabel('Time Stamp (Validation + Test)')
+        else:
+            axes[i].tick_params(axis='x', labelbottom=False)
+
+    fig.suptitle('Sample Pair Trajectories: Validation Ground Truth + Test Performance (Pairs Selected by Train Freq.)', fontsize=14, y=0.99)
+    plt.tight_layout(rect=[0, 0.03, 0.9, 0.97]) # Adjust for legend
+    plt.savefig(os.path.join(output_dir, 'sample_pair_trajectories_train_selection_with_validation.png'), dpi=300) # New filename
+    plt.close(fig)
+
+
+def plot_flip_rate_comparison(gt_full, pred_full, timestamps, output_dir, window_size=10):
+    """Calculates and plots the number of state changes (on/off flips) in time windows."""
+
+    def count_flips(df, pair_col='pair', time_col='time_stamp', present_col='present'):
+        # Calculate differences between consecutive states for each pair
+        df_sorted = df.sort_values([pair_col, time_col])
+        df_sorted['prev_state'] = df_sorted.groupby(pair_col)[present_col].shift(1)
+        # A flip occurs if the state is different from the previous state (and prev state exists)
+        df_sorted['flip'] = (df_sorted[present_col] != df_sorted['prev_state']) & (df_sorted['prev_state'].notna())
+        return df_sorted[df_sorted['flip']]
+
+    gt_flips = count_flips(gt_full)
+    pred_flips = count_flips(pred_full)
+
+    # Bin flips into time windows
+    bins = np.arange(min(timestamps), max(timestamps) + window_size, window_size)
+    labels = [f"{bins[i]}-{bins[i+1]-1}" for i in range(len(bins)-1)]
+
+    if not labels: # Handle case with very few timestamps
+        print("Not enough timestamps to create windows for flip rate analysis.")
+        return
+
+    gt_flips['time_window'] = pd.cut(gt_flips['time_stamp'], bins=bins, labels=labels, right=False)
+    pred_flips['time_window'] = pd.cut(pred_flips['time_stamp'], bins=bins, labels=labels, right=False)
+
+    gt_flip_counts = gt_flips.groupby('time_window').size()
+    pred_flip_counts = pred_flips.groupby('time_window').size()
+
+    # Combine counts for plotting
+    flip_counts_df = pd.DataFrame({'Ground Truth': gt_flip_counts, 'Prediction': pred_flip_counts}).fillna(0)
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(12, 6))
+    flip_counts_df.plot(kind='bar', ax=ax, color=['#0074D9', '#FFA500'])
+    ax.set_title(f'Interaction State Flips per Time Window (Size={window_size})')
+    ax.set_xlabel('Time Window')
+    ax.set_ylabel('Number of Flips (On<->Off)')
+    ax.tick_params(axis='x', rotation=45)
     plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'flip_rate_comparison.png'), dpi=300)
+    plt.close(fig)
 
-    # Show the plot
-    plt.savefig(os.path.join(output_dir, 'GroundTruth-PredictedSet_Heatmaps.png'), dpi=300, bbox_inches='tight')
 
-    print("Heatmaps of ground truths and predicted interactions saved to GroundTruth-PredictedSet_Heatmaps.png")
+# --- Analysis 2 Functions ---
 
-    # TEST DATA BUBBLE HEATMAP DF
+def plot_metrics_vs_time(gt_eval_series, pred_eval_series, timestamps, total_possible_pairs_per_ts, output_dir):
+    """Calculates metrics cumulatively up to each timestamp and plots them."""
+    metrics_over_time = defaultdict(list)
+    timestamps_sorted = sorted(timestamps)
 
-    test_bubble = get_res_heatmap_df(test_set_post_process)
-    test_bubble['type'] = 'ACTUAL TEST DATA'
-    test_bubble['freq'] = test_bubble['values'] / (np.max(test_set_post_process['time_stamp']) - np.min(test_set_post_process['time_stamp']) +1)
+    # Align indices once
+    common_index = gt_eval_series.index.intersection(pred_eval_series.index)
+    gt_aligned = gt_eval_series[common_index]
+    pred_aligned = pred_eval_series[common_index]
 
-    # OUTPUT BUBBLE HEATMAP DF
+    # Get the MultiIndex levels for filtering by time
+    pairs = gt_aligned.index.get_level_values(0)
+    times = gt_aligned.index.get_level_values(1)
 
-    output_bubble = get_res_heatmap_df_output(output_post_process)
-    output_bubble['type'] = 'PREDICTED DATA'
-    output_bubble['freq'] = output_bubble['values'] / (np.max(output_post_process['time_stamp']) - np.min(output_post_process['time_stamp']) +1)
 
-    # CONCAT DF TO CREATE BUBBLE DF
+    for t_idx, t in enumerate(timestamps_sorted):
+        # Filter data up to current time t
+        mask = times <= t
+        gt_cumulative = gt_aligned[mask]
+        pred_cumulative = pred_aligned[mask]
 
-    bubble_heatmap_output = pd.concat([test_bubble, output_bubble])
+        # Calculate total possible interactions up to this time
+        # Assuming total_possible_pairs_per_ts is the number of unique s*o pairs
+        total_possible_cumulative = total_possible_pairs_per_ts * (t_idx + 1)
 
-    fig = px.scatter(bubble_heatmap_output, x="residue_b", y="residue_a",
-                size="freq", color="type", size_max=30, opacity=0.6, color_discrete_map={'ACTUAL TEST DATA':'red','PREDICTED DATA':'lightblue'})
+        # Calculate metrics for cumulative data
+        metrics = calculate_metrics(gt_cumulative, pred_cumulative, total_possible_cumulative)
 
-    fig.update_layout(title="Buble heatmap of ground truth and predicted test set",
-                    yaxis_nticks=len(bubble_heatmap_output["residue_a"]),xaxis_nticks=len(bubble_heatmap_output["residue_b"]),
-                    height =len(bubble_heatmap_output["residue_a"])*15)
-    fig.update_layout(barmode='stack')
-    fig.update_xaxes(categoryorder='category ascending',title='First Chain')
-    fig.update_yaxes(categoryorder='category ascending',title='Second Chain')
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='black')
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='black')
-    fig.write_image(os.path.join(output_dir, "Bubble_Heatmap.png"))
+        # Store metrics
+        metrics_over_time['Time'].append(t)
+        for key in ['Recall', 'Precision', 'F1', 'MCC', 'TPR', 'FPR']:
+            metrics_over_time[key].append(metrics[key])
 
-    print("Bubble heatmap saved to Bubble_Heatmaps.png")
-"""
+    metrics_df = pd.DataFrame(metrics_over_time)
+
+    # Plotting
+    fig, axes = plt.subplots(3, 2, figsize=(15, 12), sharex=True)
+    axes = axes.flatten()
+    metrics_to_plot = ['Recall', 'Precision', 'F1', 'MCC', 'TPR', 'FPR']
+
+    for i, metric in enumerate(metrics_to_plot):
+        axes[i].plot(metrics_df['Time'], metrics_df[metric], marker='.', linestyle='-', label=metric)
+        axes[i].set_title(f'Cumulative {metric} vs. Time')
+        axes[i].set_ylabel(metric)
+        axes[i].grid(True, linestyle='--', alpha=0.6)
+        if i >= 4: # Bottom row
+             axes[i].set_xlabel('Time Stamp')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'metrics_vs_time.png'), dpi=300)
+    plt.close(fig)
+
+def plot_cumulative_error(gt_eval_series, pred_eval_series, timestamps, output_dir):
+    """Calculates and plots the cumulative sum of errors (FP + FN) over time."""
+    errors_over_time = defaultdict(list)
+    timestamps_sorted = sorted(timestamps)
+
+    # Align indices once
+    common_index = gt_eval_series.index.intersection(pred_eval_series.index)
+    gt_aligned = gt_eval_series[common_index]
+    pred_aligned = pred_eval_series[common_index]
+
+    # Get the MultiIndex levels for filtering by time
+    times = gt_aligned.index.get_level_values(1)
+
+    cumulative_fp = 0
+    cumulative_fn = 0
+
+    for t in timestamps_sorted:
+         # Filter data AT current time t
+        mask_t = times == t
+        gt_t = gt_aligned[mask_t]
+        pred_t = pred_aligned[mask_t]
+
+        fp_t = ((pred_t == 1) & (gt_t == 0)).sum()
+        fn_t = ((pred_t == 0) & (gt_t == 1)).sum()
+
+        cumulative_fp += fp_t
+        cumulative_fn += fn_t
+
+        errors_over_time['Time'].append(t)
+        errors_over_time['Cumulative FP'].append(cumulative_fp)
+        errors_over_time['Cumulative FN'].append(cumulative_fn)
+        errors_over_time['Cumulative Errors (FP+FN)'].append(cumulative_fp + cumulative_fn)
+
+    errors_df = pd.DataFrame(errors_over_time)
+
+    # Plotting
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(errors_df['Time'], errors_df['Cumulative Errors (FP+FN)'], marker='.', linestyle='-', label='Cumulative Errors (FP+FN)')
+    # Optional: Plot FP and FN separately
+    # ax.plot(errors_df['Time'], errors_df['Cumulative FP'], marker='.', linestyle='--', label='Cumulative FP', alpha=0.7)
+    # ax.plot(errors_df['Time'], errors_df['Cumulative FN'], marker='.', linestyle='--', label='Cumulative FN', alpha=0.7)
+
+    ax.set_title('Cumulative Errors (FP + FN) vs. Time')
+    ax.set_xlabel('Time Stamp')
+    ax.set_ylabel('Cumulative Count')
+    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.6)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'cumulative_error_vs_time.png'), dpi=300)
+    plt.close(fig)
+
+
+# --- Analysis 3 Functions ---
+
+def bin_edges_by_frequency(train_set_post):
+    """Bins edges based on their frequency in the TRAINING set.
+    Returns: 
+        tuple: (stability_bins (Series), pair_freq_train (Series)) or (None, None) if error.
+    """
+    if train_set_post.empty:
+        print("Warning: Training set data is empty. Cannot bin edges by training frequency.")
+        return None, None
+
+    # Calculate frequency based on presence in the training set
+    total_train_timestamps = train_set_post['time_stamp'].nunique()
+    if total_train_timestamps == 0:
+         print("Warning: No timestamps found in training set. Cannot calculate frequency.")
+         return None, None
+         
+    pair_counts_train = train_set_post.groupby('pair').size()
+    pair_freq_train = pair_counts_train / total_train_timestamps
+
+    bins = [-0.01, 0.1, 0.5, 1.01] # Bins: [0, 0.1), [0.1, 0.5), [0.5, 1.0]
+    labels = ['Rare (<10%)', 'Moderate (10-50%)', 'Stable (>50%)']
+
+    stability_bins = pd.cut(pair_freq_train, bins=bins, labels=labels, right=False)
+    # stability_bins = stability_bins.cat.add_categories('Undefined').fillna('Undefined') # Alignment handled later
+
+    print("\nInteraction Stability Binning (based on TRAINING Set Frequency):")
+    print(stability_bins.value_counts())
+
+    return stability_bins, pair_freq_train # Return both Series
+
+def plot_metrics_by_stability(gt_eval_series, pred_eval_series, stability_bins, total_possible_pairs_per_ts, output_dir, scores_file_path):
+    """Calculates metrics for each stability bin (based on train freq), plots, and writes counts/metrics."""
+
+    metrics_by_bin = {}
+    total_possible_interactions_over_time = total_possible_pairs_per_ts * len(gt_eval_series.index.get_level_values(1).unique())
+
+    # Align indices for evaluation data
+    common_index = gt_eval_series.index.intersection(pred_eval_series.index)
+    gt_aligned = gt_eval_series[common_index]
+    pred_aligned = pred_eval_series[common_index]
+    # Get all unique pairs present in the evaluation data (test set + predictions)
+    eval_pairs = gt_aligned.index.get_level_values(0).unique()
+
+    # Align stability bins (from training) with evaluation pairs
+    # Assign 'Undefined' to pairs in eval but not in train stability bins
+    stability_bins_aligned = stability_bins.reindex(eval_pairs).cat.add_categories('Undefined').fillna('Undefined')
+    bin_counts = stability_bins_aligned.value_counts() # Counts based on eval pairs
+
+    # Append performance to the scores file
+    with open(scores_file_path, "a") as scores:
+        print("\n--- Performance by Interaction Stability (TRAINING Set Frequency) ---", file=scores)
+
+        # Use the categories from the aligned bins
+        for bin_label in stability_bins_aligned.cat.categories:
+            # Skip Undefined bin here, or handle it if desired
+            # if bin_label == 'Undefined': continue 
+
+            pairs_in_bin = stability_bins_aligned[stability_bins_aligned == bin_label].index
+            pair_count = bin_counts.get(bin_label, 0) # Get count for this bin
+
+            # Rename Moderate -> Uncommon for file output
+            output_label = "Uncommon (10-50%)" if bin_label == "Moderate (10-50%)" else bin_label
+            output_label = "Not in Train" if bin_label == "Undefined" else output_label # Rename Undefined
+            print(f"\nMetrics for {output_label} interactions ({pair_count} pairs):", file=scores)
+
+            if pairs_in_bin.empty or pair_count == 0:
+                print(f"No pairs found for bin: {output_label}")
+                # Ensure bin exists in metrics dict even if empty
+                metrics_by_bin[bin_label] = {k: 0 for k in ['Recall', 'Precision', 'F1', 'MCC']}
+                print("No interactions found in this bin for metric calculation.", file=scores)
+                continue
+
+            # Filter evaluation series to include only pairs in the current bin
+            gt_bin = gt_aligned[gt_aligned.index.get_level_values(0).isin(pairs_in_bin)]
+            pred_bin = pred_aligned[pred_aligned.index.get_level_values(0).isin(pairs_in_bin)]
+
+            # Check if filtered data is empty (can happen if pair_count > 0 but no interactions in test)
+            if gt_bin.empty and pred_bin.empty:
+                 metrics = {'Recall': 0, 'Precision': 0, 'F1': 0, 'MCC': 0} # Or NaN?
+                 print("No interactions present in test/predictions for this bin.", file=scores)
+            else:
+                # Calculate metrics using local TP/FP/FN/TN calculation within the loop
+                TP_bin = ((pred_bin == 1) & (gt_bin == 1)).sum()
+                FP_bin = ((pred_bin == 1) & (gt_bin == 0)).sum()
+                FN_bin = ((pred_bin == 0) & (gt_bin == 1)).sum()
+                TN_bin = ((pred_bin == 0) & (gt_bin == 0)).sum() # TNs within the observed bin slice
+
+                Recall_bin = TP_bin / (TP_bin + FN_bin) if (TP_bin + FN_bin) > 0 else 0
+                Precision_bin = TP_bin / (TP_bin + FP_bin) if (TP_bin + FP_bin) > 0 else 0
+                F1_bin = 2 * ((Precision_bin * Recall_bin) / (Precision_bin + Recall_bin)) if (Precision_bin + Recall_bin) > 0 else 0
+                mcc_denom_bin = ((TP_bin + FP_bin) * (TP_bin + FN_bin) * (TN_bin + FP_bin) * (TN_bin + FN_bin))**(1/2)
+                MCC_bin = (TP_bin * TN_bin - FP_bin * FN_bin) / mcc_denom_bin if mcc_denom_bin > 0 else 0
+                metrics = {'Recall': Recall_bin, 'Precision': Precision_bin, 'F1': F1_bin, 'MCC': MCC_bin}
+                print(f"Recall: {Recall_bin:.4f}, Precision: {Precision_bin:.4f}, F1: {F1_bin:.4f}, MCC: {MCC_bin:.4f}", file=scores)
+
+            metrics_by_bin[bin_label] = metrics
+
+    # Prepare DataFrame for plotting, potentially removing 'Undefined' or renaming
+    metrics_df = pd.DataFrame(metrics_by_bin).T
+    # Optionally drop 'Undefined' row if you don't want to plot it
+    metrics_df_plot = metrics_df.drop('Undefined', errors='ignore') 
+    # Ensure desired plot order if needed
+    plot_order = [l for l in ['Rare (<10%)', 'Moderate (10-50%)', 'Stable (>50%)'] if l in metrics_df_plot.index]
+    metrics_df_plot = metrics_df_plot.reindex(plot_order)
+
+    # Plotting
+    if not metrics_df_plot.empty:
+        fig, ax = plt.subplots(figsize=(12, 7)) # Adjusted size slightly
+        metrics_df_plot.plot(kind='bar', ax=ax)
+
+        # Add text labels to the bars
+        for container in ax.containers:
+            ax.bar_label(container, fmt='%.2f', label_type='edge', padding=3, fontsize=9)
+
+        ax.set_title('Performance Metrics by Interaction Stability (based on Training Freq.)')
+        ax.set_xlabel('Stability Bin (Training Set Frequency)') # Label reflects training freq
+        ax.set_ylabel('Score')
+        ax.tick_params(axis='x', rotation=0)
+        ax.legend(title='Metric', bbox_to_anchor=(1.02, 1), loc='upper left') # Move legend outside
+        ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+        ax.set_ylim(bottom=0, top=max(1.05, ax.get_ylim()[1] * 1.05))
+
+        plt.tight_layout(rect=[0, 0, 0.88, 1]) # Adjust layout for external legend
+        plt.savefig(os.path.join(output_dir, 'metrics_by_stability_bar_trainfreq.png'), dpi=300) # New filename
+        plt.close(fig)
+    else:
+        print("No data to plot for metrics by stability.")
+
+
+def calculate_per_edge_f1(ground_truth_full, pred_full):
+    """Calculates F1 score for each edge based on test set performance.
+    Returns:
+        DataFrame: Index=pair, Columns=['F1'] or None if calculation fails.
+    """
+    # Align full dataframes on pair and time
+    merged = pd.merge(
+        ground_truth_full.add_suffix('_gt'),
+        pred_full.add_suffix('_pred'),
+        left_on=['pair_gt', 'time_stamp_gt'],
+        right_on=['pair_pred', 'time_stamp_pred'],
+        how='inner'
+    )
+
+    if merged.empty:
+        print("Warning: Merging ground truth and predictions for per-edge F1 resulted in an empty dataframe.")
+        return None
+
+    per_edge_stats = []
+    for pair, group in merged.groupby('pair_gt'):
+        gt = group['present_gt']
+        pred = group['present_pred']
+
+        TP = ((pred == 1) & (gt == 1)).sum()
+        FP = ((pred == 1) & (gt == 0)).sum()
+        FN = ((pred == 0) & (gt == 1)).sum()
+
+        precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+        recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+        per_edge_stats.append({'pair': pair, 'F1': f1})
+
+    if not per_edge_stats:
+        print("Could not calculate per-edge F1 stats.")
+        return None
+
+    f1_df = pd.DataFrame(per_edge_stats).set_index('pair')
+    return f1_df
+
+def plot_f1_distribution_by_stability(f1_df, stability_bins, output_dir):
+    """Plots the distribution of per-edge F1 scores grouped by stability bins."""
+    # Add stability bin information (derived from TRAINING set frequency)
+    eval_pairs_f1 = f1_df.index
+    stability_bins_aligned_f1 = stability_bins.reindex(eval_pairs_f1).cat.add_categories('Undefined').fillna('Undefined')
+    
+    f1_with_bins = f1_df.join(stability_bins_aligned_f1.rename('Stability Bin'))
+    # Exclude pairs that were not present in the training set (Undefined bin)
+    f1_df_plot = f1_with_bins[f1_with_bins['Stability Bin'] != 'Undefined']
+    
+    if f1_df_plot.empty:
+        print("No data to plot for F1 distribution by stability (after excluding pairs not in train).")
+        return
+
+    # Plotting (Boxplot)
+    plt.figure(figsize=(10, 7))
+    bin_order = [b for b in ['Rare (<10%)', 'Moderate (10-50%)', 'Stable (>50%)'] if b in f1_df_plot['Stability Bin'].unique()]
+    if bin_order:
+         sns.boxplot(data=f1_df_plot, x='Stability Bin', y='F1', order=bin_order, palette='viridis')
+         plt.title('Distribution of Per-Pair F1 Scores by Stability Bin (based on Training Freq.)')
+         plt.xlabel('Stability Bin (Training Set Frequency)')
+         plt.ylabel('F1 Score (calculated on Test Set)')
+         plt.grid(True, axis='y', linestyle='--', alpha=0.6)
+         plt.tight_layout()
+         plt.savefig(os.path.join(output_dir, 'per_edge_f1_distribution_trainfreq.png'))
+         plt.close()
+    else:
+         print("No valid stability bins found for plotting F1 distribution.")
+
+def plot_train_freq_vs_test_f1(pair_freq_train, f1_df, stability_bins, output_dir):
+    """Generates a scatter plot of Training Frequency vs Test F1 Score."""
+    if pair_freq_train is None or f1_df is None or stability_bins is None:
+        print("Skipping train freq vs test f1 plot due to missing input data.")
+        return
+
+    # Combine the data: Need Training Freq, Test F1, and Stability Bin (from Train Freq)
+    # Ensure stability_bins index matches pair_freq_train index initially
+    combined_df = pd.DataFrame({
+        'Train Frequency': pair_freq_train,
+        'Stability Bin': stability_bins
+    })
+
+    # Join with Test F1 scores (indexed by pair)
+    combined_df = combined_df.join(f1_df, how='inner') # Inner join keeps only pairs present in both train and test results
+
+    if combined_df.empty:
+        print("No common pairs found between training frequency data and test F1 results. Cannot generate scatter plot.")
+        return
+
+    # Drop rows where stability bin might be NaN if any slipped through (though join should handle)
+    combined_df = combined_df.dropna(subset=['Stability Bin', 'Train Frequency', 'F1'])
+
+    plt.figure(figsize=(12, 8))
+    bin_order = [b for b in ['Rare (<10%)', 'Moderate (10-50%)', 'Stable (>50%)'] if b in combined_df['Stability Bin'].unique()]
+    
+    sns.scatterplot(
+        data=combined_df, 
+        x='Train Frequency', 
+        y='F1', 
+        hue='Stability Bin', 
+        hue_order=bin_order, 
+        palette='viridis', # Using viridis palette for potentially better contrast
+        alpha=0.8,       # Slightly less transparent
+        s=60             # Slightly larger markers
+    )
+
+    plt.title('Training Set Frequency vs. Test Set F1 Score per Pair')
+    plt.xlabel('Pair Frequency in Training Set')
+    plt.ylabel('F1 Score on Test Set')
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.legend(title='Stability Bin (Train Freq.)')
+    plt.ylim(-0.05, 1.05)
+    plt.xlim(-0.05, 1.05)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'scatter_train_freq_vs_test_f1.png'), dpi=300)
+    plt.close()
 
 
 if __name__ == "__main__":
