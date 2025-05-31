@@ -372,22 +372,74 @@ class MetricsPlotter(BasePlotter):
         metrics_df_plot = metrics_df_plot.reindex(plot_order)
         
         if not metrics_df_plot.empty:
-            fig, ax = plt.subplots(figsize=(12, 7))
-            metrics_df_plot.plot(kind='bar', ax=ax)
+            # Get stability color palette
+            stability_colors = self.get_color_palette("stability")
+            
+            # Create custom color map for the metrics
+            metric_colors = {
+                'Recall': '#2E86AB',      # Blue
+                'Precision': '#A23B72',   # Purple  
+                'F1': '#F18F01',          # Orange
+                'MCC': '#C73E1D'          # Red
+            }
+            
+            fig, ax = plt.subplots(figsize=(12, 8))
+            
+            # Create the bar plot with custom colors
+            bars = metrics_df_plot.plot(
+                kind='bar', 
+                ax=ax, 
+                color=[metric_colors[col] for col in metrics_df_plot.columns],
+                width=0.8,
+                edgecolor='white',
+                linewidth=0.7
+            )
             
             # Add value labels on bars
             for container in ax.containers:
-                ax.bar_label(container, fmt='%.2f', label_type='edge', padding=3, fontsize=9)
+                ax.bar_label(container, fmt='%.3f', label_type='edge', padding=3, fontsize=9, fontweight='bold')
             
-            ax.set_title('Performance Metrics by Interaction Stability (based on Training Freq.)')
-            ax.set_xlabel('Stability Bin (Training Set Frequency)')
-            ax.set_ylabel('Score')
-            ax.tick_params(axis='x', rotation=0)
-            ax.legend(title='Metric', bbox_to_anchor=(1.02, 1), loc='upper left')
-            ax.grid(True, axis='y', linestyle='--', alpha=0.6)
-            ax.set_ylim(bottom=0, top=max(1.05, ax.get_ylim()[1] * 1.05))
+            # Create x-axis labels with sample counts
+            x_labels_with_counts = []
+            for bin_label in plot_order:
+                count = bin_counts.get(bin_label, 0)
+                x_labels_with_counts.append(f'{bin_label}\n(N={count})')
             
-            plt.tight_layout(rect=[0, 0, 0.88, 1])
+            ax.set_xticklabels(x_labels_with_counts, rotation=0, ha='center')
+            
+            # Styling improvements
+            ax.set_title('Performance Metrics by Interaction Stability (based on Training Freq.)', 
+                        fontsize=14, fontweight='bold', pad=20)
+            ax.set_xlabel('Stability Bin (Training Set Frequency)', fontsize=12, fontweight='bold')
+            ax.set_ylabel('Score', fontsize=12, fontweight='bold')
+            
+            # Improve legend
+            ax.legend(
+                title='Metric', 
+                title_fontsize=11,
+                fontsize=10,
+                bbox_to_anchor=(1.02, 1), 
+                loc='upper left',
+                frameon=True,
+                fancybox=True,
+                shadow=True
+            )
+            
+            # Improve grid
+            ax.grid(True, axis='y', linestyle='--', alpha=0.4, linewidth=0.8)
+            ax.set_axisbelow(True)
+            
+            # Set y-axis limits with some padding
+            ax.set_ylim(bottom=0, top=min(1.1, max(1.05, ax.get_ylim()[1] * 1.08)))
+            
+            # Improve tick formatting
+            ax.tick_params(axis='both', which='major', labelsize=10)
+            ax.tick_params(axis='x', which='major', pad=5)
+            
+            # Add subtle background color
+            ax.set_facecolor('#f8f9fa')
+            
+            plt.tight_layout(rect=[0, 0, 0.85, 1])
             
             # Save and close
             filename = 'metrics_by_stability_bar_trainfreq.png'

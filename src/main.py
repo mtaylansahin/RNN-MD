@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Dict, Any
 import itertools
+import os
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -12,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from core.config import ConfigManager, ExperimentConfig
 from core.utils import setup_logging, get_logger, ExperimentLogger
 from adapters.renet import RENetAdapter
+from analysis import ResultsManager, AnalysisConfig
 
 
 def run_data_preprocessing(config: ExperimentConfig, logger: ExperimentLogger) -> bool:
@@ -209,6 +211,14 @@ def run_hyperparameter_sweep(
             
             logger.logger.info(f"Completed run {run_id}/{total_combinations} successfully")
             
+            # Generate visualization analysis for this successful run
+            visualization_success = run_visualization_analysis(config, results[-1], logger)
+            if visualization_success:
+                results[-1]["visualization_status"] = "success"
+                results[-1]["analysis_directory"] = os.path.join(results_directory, "analysis")
+            else:
+                results[-1]["visualization_status"] = "failed"
+            
         except Exception as e:
             error_msg = f"Unexpected error in run {run_id}: {e}"
             logger.log_error(error_msg, e)
@@ -224,16 +234,145 @@ def run_hyperparameter_sweep(
     # Log summary
     successful_runs = sum(1 for r in results if r["status"] == "success")
     failed_runs = len(results) - successful_runs
+    visualization_successes = sum(1 for r in results if r.get("visualization_status") == "success")
     
     summary = {
         "total_runs": len(results),
         "successful_runs": successful_runs,
         "failed_runs": failed_runs,
-        "success_rate": f"{(successful_runs / len(results) * 100):.1f}%" if results else "0%"
+        "success_rate": f"{(successful_runs / len(results) * 100):.1f}%" if results else "0%",
+        "visualizations_generated": visualization_successes,
+        "visualization_success_rate": f"{(visualization_successes / successful_runs * 100):.1f}%" if successful_runs > 0 else "0%"
     }
     
     logger.log_phase_completion("hyperparameter_sweep", summary)
     return results
+
+
+def run_visualization_analysis(
+    experiment_config: ExperimentConfig,
+    result: Dict[str, Any],
+    logger: ExperimentLogger
+) -> bool:
+    """Run visualization analysis for a successful model run.
+    
+    Args:
+        experiment_config: Experiment configuration
+        result: Result dictionary from successful model run
+        logger: Experiment logger
+        
+    Returns:
+        True if visualization generation successful, False otherwise
+    """
+    logger.log_phase_start(f"visualization_analysis_run_{result['run_id']}")
+    
+    try:
+        # Determine input directory (original data directory)
+        input_directory = experiment_config.data_config.data_directory
+        
+        # Get results directory
+        results_directory = experiment_config.get_results_directory(result['run_identifier'])
+        
+        # Create analysis subdirectory within results
+        analysis_output_dir = os.path.join(results_directory, "analysis")
+        
+        # Get the prediction output file
+        prediction_file = result['output_file']
+        
+        # Create analysis configuration
+        analysis_config = AnalysisConfig(
+            input_directory=input_directory,
+            output_directory=analysis_output_dir,
+            output_file_path=prediction_file,
+            num_pairs_to_show=50,  # Can be made configurable
+            valid_steps_to_show=20  # Can be made configurable
+        )
+        
+        # Run analysis and visualization
+        results_manager = ResultsManager(analysis_config)
+        success = results_manager.run_complete_analysis()
+        
+        if success:
+            logger.logger.info(f"Visualization analysis completed for run {result['run_id']}")
+            logger.log_phase_completion(
+                f"visualization_analysis_run_{result['run_id']}", 
+                {
+                    "status": "success",
+                    "analysis_directory": analysis_output_dir,
+                    "prediction_file": prediction_file
+                }
+            )
+            return True
+        else:
+            logger.log_error(f"Visualization analysis failed for run {result['run_id']}")
+            logger.log_phase_completion(
+                f"visualization_analysis_run_{result['run_id']}", 
+                {"status": "failed", "error": "Analysis pipeline failed"}
+            )
+            return False
+        
+    except Exception as e:
+        error_msg = f"Visualization analysis failed for run {result['run_id']}: {e}"
+        logger.log_error(error_msg, e)
+        logger.log_phase_completion(
+            f"visualization_analysis_run_{result['run_id']}", 
+            {"status": "failed", "error": error_msg}
+        )
+        return False
+
+
+def generate_experiment_summary_visualizations(
+    config: ExperimentConfig,
+    results: List[Dict[str, Any]],
+    logger: ExperimentLogger
+) -> bool:
+    """Generate summary visualizations across all successful runs.
+    
+    Args:
+        config: Experiment configuration
+        results: List of all run results
+        logger: Experiment logger
+        
+    Returns:
+        True if summary visualization generation successful, False otherwise
+    """
+    logger.log_phase_start("experiment_summary_visualizations")
+    
+    try:
+        successful_results = [r for r in results if r["status"] == "success" and r.get("visualization_status") == "success"]
+        
+        if not successful_results:
+            logger.logger.warning("No successful runs with visualizations found for summary generation")
+            logger.log_phase_completion("experiment_summary_visualizations", {"status": "skipped", "reason": "no_successful_runs"})
+            return False
+        
+        # Create experiment-wide summary directory
+        summary_directory = os.path.join(config.results_base_directory, f"{config.experiment_name}_experiment_summary")
+        Path(summary_directory).mkdir(parents=True, exist_ok=True)
+        
+        logger.logger.info(f"Generated experiment summary for {len(successful_results)} successful runs")
+        logger.logger.info(f"Summary directory: {summary_directory}")
+        logger.logger.info("Individual run visualizations available at:")
+        
+        for result in successful_results:
+            if "analysis_directory" in result:
+                logger.logger.info(f"  Run {result['run_id']} ({result['run_identifier']}): {result['analysis_directory']}")
+        
+        logger.log_phase_completion(
+            "experiment_summary_visualizations", 
+            {
+                "status": "success",
+                "summary_directory": summary_directory,
+                "successful_runs_with_viz": len(successful_results)
+            }
+        )
+        return True
+        
+    except Exception as e:
+        error_msg = f"Experiment summary visualization generation failed: {e}"
+        logger.log_error(error_msg, e)
+        logger.log_phase_completion("experiment_summary_visualizations", {"status": "failed", "error": error_msg})
+        return False
 
 
 def main():
@@ -303,6 +442,12 @@ def main():
             experiment_logger.logger.info("Successful runs:")
             for result in successful_results:
                 experiment_logger.logger.info(f"  Run {result['run_id']} ({result['run_identifier']}): {result['output_file']}")
+        
+        # Generate experiment summary visualizations
+        if generate_experiment_summary_visualizations(config, results, experiment_logger):
+            experiment_logger.logger.info("Experiment summary visualizations generated successfully")
+        else:
+            experiment_logger.logger.warning("Experiment summary visualizations generation skipped")
         
         return 0 if successful_results else 1
         
