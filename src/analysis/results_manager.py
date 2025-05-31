@@ -459,7 +459,7 @@ class ResultsManager:
         processed_data: ProcessedData,
         metrics_report: MetricsReport
     ) -> None:
-        """Generate visualizations (placeholder for future implementation).
+        """Generate comprehensive visualizations using the visualization system.
         
         Args:
             processed_data: Processed analysis data
@@ -468,22 +468,48 @@ class ResultsManager:
         self.experiment_logger.log_phase_start("visualization_generation")
         
         try:
-            # Placeholder for visualization generation
-            # The original result.py had extensive plotting logic that would be
-            # implemented in separate visualization classes
+            # Import visualization manager
+            from .visualization import VisualizationManager
             
-            self.logger.info("Visualization generation placeholder - implement visualization classes")
+            # Initialize visualization manager
+            viz_manager = VisualizationManager(self.config.output_directory)
             
-            # Future: Import and use visualization classes
-            # from .visualization import HeatmapPlotter, MetricsPlotter, TrajectoryPlotter
+            # Generate all visualizations
+            scores_file_path = os.path.join(self.config.output_directory, "PerformanceMetrics.txt")
+            generated_plots = viz_manager.generate_all_visualizations(
+                processed_data=processed_data,
+                metrics_report=metrics_report,
+                scores_file_path=scores_file_path,
+                num_pairs_to_show=self.config.num_pairs_to_show,
+                valid_steps_to_show=self.config.valid_steps_to_show,
+                num_representative_pairs=7
+            )
+            
+            # Log results
+            total_plots = len(generated_plots['all'])
+            self.logger.info(f"Successfully generated {total_plots} visualization plots")
             
             self.experiment_logger.log_phase_completion(
                 "visualization_generation",
-                {"status": "placeholder", "note": "Implement visualization classes"}
+                {
+                    "status": "success",
+                    "total_plots": total_plots,
+                    "heatmaps": len(generated_plots['heatmaps']),
+                    "trajectories": len(generated_plots['trajectories']),
+                    "metrics": len(generated_plots['metrics']),
+                    "plot_files": [Path(p).name for p in generated_plots['all'] if p]
+                }
             )
             
+        except ImportError as e:
+            self.logger.warning(f"Visualization modules not available: {e}")
+            self.experiment_logger.log_phase_completion(
+                "visualization_generation",
+                {"status": "skipped", "reason": f"Import error: {e}"}
+            )
         except Exception as e:
-            self.logger.warning(f"Visualization generation failed: {e}")
+            self.logger.error(f"Visualization generation failed: {e}")
+            self.experiment_logger.log_error(f"Visualization failed: {e}", e)
             self.experiment_logger.log_phase_completion(
                 "visualization_generation",
                 {"status": "failed", "error": str(e)}
