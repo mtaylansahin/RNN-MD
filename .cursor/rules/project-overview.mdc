@@ -1,0 +1,34 @@
+---
+description: Project Overview
+globs: 
+alwaysApply: false
+---
+# RNN-MD Project Overview
+
+## Purpose
+RNN-MD (Recurrent Neural Networks for Molecular Dynamics) is a deep learning framework that predicts protein-protein interaction (PPI) dynamics using molecular dynamics simulation data. The project extends the [RE-Net](mdc:RE-Net/README.md) framework to analyze temporal patterns in protein interactions.
+
+## Key Components
+- **Main Entry Point**: [RNN-MD.py](mdc:RNN-MD.py) - The primary script that orchestrates the entire pipeline
+- **Data Formatting**: [format.py](mdc:format.py) - Converts interfacea tool output to RNN-MD format
+- **Individual Training**: [model_train.py](mdc:model_train.py) - Standalone training script for individual runs
+- **Results Analysis**: [result.py](mdc:result.py) - Generates predictions and visualizations
+- **Neural Network Framework**: [RE-Net/](mdc:RE-Net) - Modified RE-Net implementation
+- **Installation Script**: [setup.sh](mdc:setup.sh) - Quick setup for dependencies
+
+## Workflow
+1. MD simulations → Interfacea analysis → Interaction data
+2. Data formatting and splitting ([format.py](mdc:format.py))
+3. Model training with RNN ([RE-Net/](mdc:RE-Net))
+4. Prediction and analysis ([result.py](mdc:result.py))
+
+## Data Format
+The project uses residue-level interaction data with three interaction types:
+- 0: hydrogen bonds (hbond)
+- 1: hydrophobic interactions  
+- 2: ionic interactions
+
+## Requirements
+- NVIDIA GPU required for training
+- Python 3.6 with specific CUDA/PyTorch versions
+- See [requirements.txt](mdc:requirements.txt) for full dependencies

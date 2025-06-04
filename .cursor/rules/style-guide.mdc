@@ -1,0 +1,243 @@
+---
+description: Project coding style guide. When refactoring existing code these rules should be referenced and adhered to
+globs: 
+alwaysApply: false
+---
+# RNN-MD Style Guide
+
+This document outlines the coding standards and best practices for the RNN-MD project, emphasizing clean code principles and maintainable Python development.
+
+## Core Clean Code Principles
+
+### 1. Self-Documenting Code Over Comments
+- **Write code that explains itself** through clear naming and structure
+- Use comments **sparingly** and only when the "why" is not obvious from the code
+- Prefer refactoring unclear code over adding explanatory comments
+- When comments are necessary, explain **why**, not **what**
+
+```python
+# Bad: Comment explains what the code does
+# Check if the time is greater than split time
+if dataset['time'] > time_split_train:
+    
+# Good: Self-explanatory code
+if dataset['time'] > training_cutoff_time:
+
+# Acceptable comment: Explains why, not what
+# Using float conversion to handle string inputs from command line
+time_split_train = last_time * float(sys.argv[6])
+```
+
+### 2. Meaningful Names
+- Use **descriptive, searchable names** for variables, functions, and classes
+- Follow Python naming conventions:
+  - `snake_case` for variables and functions
+  - `PascalCase` for classes
+  - `UPPER_CASE` for constants
+- Avoid abbreviations unless they're domain-standard
+
+```python
+# Bad
+def get_hist_graph(self):  # Unclear abbreviation
+    df_inter = df.loc[...]  # Cryptic abbreviation
+
+# Good
+def generate_history_graph(self):
+    interaction_dataframe = dataframe.loc[...]
+```
+
+## Python-Specific Standards
+
+### 3. Function Design
+- **Single Responsibility Principle**: Each function should do one thing well
+- Keep functions small
+- Use **pure functions** when possible (no side effects)
+- Clear parameter types and return values
+
+```python
+# Good: Small, focused function
+def calculate_time_split(total_time: float, train_ratio: float) -> float:
+    return total_time * train_ratio
+
+# Good: Pure function with clear purpose
+def parse_interaction_type(interaction_string: str) -> int:
+    return pd.Categorical([interaction_string]).codes[0]
+```
+
+### 4. Error Handling
+- Use **specific exception types** rather than bare `except:`
+- Handle errors at the appropriate level
+- Provide meaningful error messages for users
+
+```python
+# Bad
+try:
+    result = subprocess.run([sys.executable, format_script_path] + format_args, check=True)
+except:
+    print("An error occurred")
+
+# Good
+try:
+    result = subprocess.run([sys.executable, format_script_path] + format_args, 
+                          check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+except subprocess.CalledProcessError as e:
+    print(f"Format script failed with exit code {e.returncode}: {e.stderr.decode()}")
+except FileNotFoundError:
+    print(f"Format script not found at {format_script_path}")
+```
+
+### 5. Import Organization
+- Group imports in this order:
+  1. Standard library imports
+  2. Third-party imports  
+  3. Local application imports
+- Use explicit imports over `import *`
+- One import per line for better git diffs
+
+```python
+# Standard library
+import argparse
+import os
+import sys
+import subprocess
+
+# Third-party
+import numpy as np
+import pandas as pd
+import torch
+
+# Local imports
+from model_train import ModelTrainer
+from format import DataFormatter
+```
+
+## Project-Specific Guidelines
+
+### 6. Machine Learning Code Standards
+- **Separate data processing from model logic**
+- Use consistent random seeds for reproducibility
+- Validate input data dimensions and types
+- Log model parameters and hyperparameters clearly
+
+```python
+# Good: Clear separation of concerns
+class DataProcessor:
+    def format_interaction_data(self, raw_data: pd.DataFrame) -> pd.DataFrame:
+        # Data formatting logic only
+        pass
+
+class ModelTrainer:
+    def train_model(self, processed_data: pd.DataFrame, hyperparameters: dict) -> None:
+        # Model training logic only
+        pass
+```
+
+### 7. File and Directory Structure
+- Use **lowercase with underscores** for Python file names
+- Group related functionality in modules
+- Keep the main script minimal and delegate to modules
+
+### 8. Configuration Management
+- **Avoid hardcoded values** in the main logic
+- Use configuration files or environment variables
+- Validate configuration parameters early
+
+```python
+# Bad: Hardcoded values scattered throughout
+os.chdir(os.path.join(current_dir, 'RE-Net'))
+os.system(f"python pretrain.py -d {self.file_name} --gpu 0")
+
+# Good: Centralized configuration
+class Config:
+    RENET_DIR = "RE-Net"
+    DEFAULT_GPU = 0
+    RESULTS_DIR = "results"
+```
+
+### 9. Class Design
+- Follow **Single Responsibility Principle** for classes
+- Use composition over inheritance when possible
+- Keep class interfaces minimal and focused
+
+```python
+# Good: Focused class with clear responsibility
+class ModelTrainTest:
+    def __init__(self, experiment_name: str):
+        self.experiment_name = experiment_name
+        self.config = Config()
+    
+    def run_pretraining(self, hyperparameters: dict) -> None:
+        # Single responsibility: handle pretraining workflow
+        pass
+```
+
+### 10. Testing Considerations
+- Write **testable code** by avoiding global state
+- Use dependency injection for external dependencies
+- Separate pure logic from I/O operations
+
+## Code Quality Tools
+
+### 11. Recommended Tools
+- **Linting**: `flake8` or `ruff` for code style
+- **Formatting**: `black` for consistent formatting
+- **Type Checking**: `mypy` for static type analysis
+- **Import Sorting**: `isort` for import organization
+
+### 12. Git Practices
+- Use **descriptive commit messages**
+- Keep commits atomic (one logical change per commit)
+- Use feature branches for new functionality
+- Review code before merging
+
+## Performance Guidelines
+
+### 13. Efficient Python
+- Use list comprehensions over loops when appropriate
+- Leverage NumPy vectorization for numerical operations
+- Profile code before optimizing
+- Use generators for memory-efficient data processing
+
+```python
+# Good: Vectorized operation
+time_splits = last_times * train_ratios
+
+# Good: Generator for large datasets
+def process_interaction_files(file_list):
+    for file_path in file_list:
+        yield process_single_file(file_path)
+```
+
+## Documentation Standards
+
+### 14. Docstring Format
+- Use **Google-style docstrings** for consistency
+- Document public APIs clearly
+- Include type hints in function signatures
+
+```python
+def save_dataset(dataset: pd.DataFrame, output_dir: str, train_ratio: float) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Split and save dataset into train, validation, and test sets.
+    
+    Args:
+        dataset: The complete interaction dataset
+        output_dir: Directory to save the split datasets
+        train_ratio: Fraction of data to use for training (0.0-1.0)
+        
+    Returns:
+        Tuple of (train_data, validation_data, test_data)
+        
+    Raises:
+        ValueError: If train_ratio is not between 0 and 1
+    """
+```
+
+## Summary
+
+Remember: **Clean code is not about following rules blindly, but about writing code that is easy to read, understand, and maintain.** When in doubt, favor clarity and simplicity over cleverness.
+
+Key mantras:
+- Code is read far more often than it is written
+- Make the code express the intent, not just the mechanics
+- Refactor mercilessly to keep the codebase clean
+- Test your code to ensure it works as expected

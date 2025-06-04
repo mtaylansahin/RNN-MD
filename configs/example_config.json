@@ -1,0 +1,36 @@
+{
+  "experiment": {
+    "experiment_name": "protein_dynamics_experiment",
+    "gpu_device": 0,
+    "use_cuda": true,
+    "random_seed": 999,
+    "renet_directory": "RE-Net",
+    "results_base_directory": "results",
+    "models_directory": "models",
+    "sequence_length": 10,
+    "num_k_parameter": 5,
+    "model_type": 3,
+    "maxpool": 1,
+    "gradient_norm_clip": 1.0,
+    "weight_decay": 0.00001,
+    "validation_frequency": 1
+  },
+  "data": {
+    "_comment_data_directory": "TODO: Update this path to your actual protein interaction data directory",
+    "data_directory": "/path/to/your/protein/data",
+    "replica": "replica1",
+    "chain1": "A",
+    "chain2": "B",
+    "train_ratio": 0.7,
+    "validation_ratio": 0.2,
+    "interaction_type": "residue"
+  },
+  "hyperparameters": {
+    "dropout_rates": [0.3, 0.5, 0.7],
+    "learning_rates": [0.001, 0.01],
+    "batch_sizes": [64, 128, 256],
+    "pretrain_epochs": [20, 30],
+    "train_epochs": [10, 15],
+    "hidden_units": [100, 200]
+  }
+} 

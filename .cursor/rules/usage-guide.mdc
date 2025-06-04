@@ -1,0 +1,64 @@
+---
+description: Usage Guide
+globs: 
+alwaysApply: false
+---
+# RNN-MD Usage Guide
+
+## Quick Start
+1. **Setup Environment**: Run [setup.sh](mdc:setup.sh) for quick installation
+   ```bash
+   chmod +x setup.sh && ./setup.sh
+   conda activate RNN-MD
+   ```
+
+2. **Basic Usage**: Use [RNN-MD.py](mdc:RNN-MD.py) with required parameters
+   ```bash
+   python RNN-MD.py --data_dir <dir> --replica <num> --chain1 <A> --chain2 <B> --train_ratio 0.8 --valid_ratio 0.1
+   ```
+
+## Main Script Parameters
+[RNN-MD.py](mdc:RNN-MD.py) accepts the following arguments:
+
+### Required Parameters
+- `--data_dir`: Directory containing interaction files
+- `--replica`: Replica number for the simulation
+- `--chain1`, `--chain2`: Protein chain identifiers
+- `--train_ratio`, `--valid_ratio`: Data splitting ratios
+
+### Optional Hyperparameters (can be single values or ranges)
+- `--dropout`: Dropout rate (default: "0.5")
+- `--learning_rate`: Learning rate (default: "0.001")  
+- `--batch_size`: Batch size (default: "128")
+- `--pretrain_epochs`: Pre-training epochs (default: "30")
+- `--train_epochs`: Training epochs (default: "10")
+- `--n_hidden`: Hidden units (default: "100")
+
+### Parameter Ranges
+Parameters can be specified as:
+- Single value: `"0.5"`
+- Range: `"[0.1, 0.9, 0.1]"` (start, stop, step)
+
+## Individual Scripts
+
+### Data Formatting
+[format.py](mdc:format.py) converts interfacea output to RNN-MD format:
+```bash
+python format.py <input_folder> <atomic/residue> <replica_no> <chain1> <chain2> <train_ratio> <valid_ratio>
+```
+
+### Model Training
+[model_train.py](mdc:model_train.py) for standalone training:
+```bash
+python model_train.py --dropout 0.5 --learning_rate 0.001 --batch_size 128 --pretrain_epochs 10 --train_epochs 30 --n_hidden 100 <file_name>
+```
+
+### Results Generation  
+[result.py](mdc:result.py) for predictions and analysis:
+```bash
+python result.py --input_dir <input_path> --output_dir <output_path> --output_file_dir <file_path>
+```
+
+## Directory Structure After Running
+- `RE-Net/data/<case_id>/`: Contains formatted training data
+- `results/<case_id>_results_<hex>/`: Contains predictions and analysis
