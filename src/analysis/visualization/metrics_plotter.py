@@ -343,23 +343,29 @@ class MetricsPlotter(BasePlotter):
                 pred_bin = pred_aligned[pred_aligned.index.get_level_values(0).isin(pairs_in_bin)]
                 
                 if gt_bin.empty and pred_bin.empty:
-                    metrics = {'Recall': 0, 'Precision': 0, 'F1': 0, 'MCC': 0}
+                    metrics = {k: 0 for k in ['Recall', 'Precision', 'F1', 'MCC']}
                     print("No interactions present in test/predictions for this bin.", file=scores)
                 else:
                     # Calculate metrics for this bin
                     TP_bin = ((pred_bin == 1) & (gt_bin == 1)).sum()
                     FP_bin = ((pred_bin == 1) & (gt_bin == 0)).sum()
                     FN_bin = ((pred_bin == 0) & (gt_bin == 1)).sum()
-                    TN_bin = ((pred_bin == 0) & (gt_bin == 0)).sum()
-                    
+
+                    # True negatives are derived from total possible interactions
+                    TN_bin = total_possible_interactions_over_time - (TP_bin + FP_bin + FN_bin)
+                    TN_bin = max(0, TN_bin)
+
                     recall_bin = TP_bin / (TP_bin + FN_bin) if (TP_bin + FN_bin) > 0 else 0
                     precision_bin = TP_bin / (TP_bin + FP_bin) if (TP_bin + FP_bin) > 0 else 0
                     f1_bin = 2 * ((precision_bin * recall_bin) / (precision_bin + recall_bin)) if (precision_bin + recall_bin) > 0 else 0
                     mcc_denom_bin = ((TP_bin + FP_bin) * (TP_bin + FN_bin) * (TN_bin + FP_bin) * (TN_bin + FN_bin))**(1/2)
                     mcc_bin = (TP_bin * TN_bin - FP_bin * FN_bin) / mcc_denom_bin if mcc_denom_bin > 0 else 0
-                    
+
                     metrics = {'Recall': recall_bin, 'Precision': precision_bin, 'F1': f1_bin, 'MCC': mcc_bin}
-                    print(f"Recall: {recall_bin:.4f}, Precision: {precision_bin:.4f}, F1: {f1_bin:.4f}, MCC: {mcc_bin:.4f}", file=scores)
+                    print(
+                        f"Recall: {recall_bin:.4f}, Precision: {precision_bin:.4f}, F1: {f1_bin:.4f}, MCC: {mcc_bin:.4f}",
+                        file=scores,
+                    )
                 
                 metrics_by_bin[bin_label] = metrics
         
