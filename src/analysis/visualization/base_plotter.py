@@ -124,8 +124,8 @@ class BasePlotter(ABC):
                 "TP": "#2ecc71"   # True Positive (Green)
             },
             "stability": {
-                "Rare (<10%)": "#E74C3C",
-                "Moderate (10-50%)": "#F39C12", 
+                "Rare (<5%)": "#E74C3C",
+                "Moderate (5-50%)": "#F39C12", 
                 "Stable (>50%)": "#27AE60"
             }
         }

@@ -335,8 +335,8 @@ class DataProcessor:
             pair_freq = pair_counts / total_train_timestamps
             
             # Define stability bins
-            bins = [-0.01, 0.1, 0.5, 1.01]
-            labels = ['Rare (<10%)', 'Moderate (10-50%)', 'Stable (>50%)']
+            bins = [-0.01, 0.05, 0.5, 1.01]
+            labels = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
             
             stability_bins = pd.cut(pair_freq, bins=bins, labels=labels, right=False)
             

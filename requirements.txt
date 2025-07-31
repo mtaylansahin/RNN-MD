@@ -3,19 +3,12 @@ cycler
 kaleido
 kiwisolver
 matplotlib
-mkl-fft
-mkl-random
-mkl-service
 numpy
-packaging
-Pillow
-plotly
-pyparsing
-python-dateutil
-pytz
-six
-scikit-learn
-tenacity
 pandas
+plotly
+scipy
 seaborn
 openpyxl
+torch
+# Optional, for network analysis in other scripts
+networkx

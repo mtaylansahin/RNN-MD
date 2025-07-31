@@ -1122,8 +1122,8 @@ def bin_edges_by_frequency(train_set_post):
     pair_counts_train = train_set_post.groupby('pair').size()
     pair_freq_train = pair_counts_train / total_train_timestamps
 
-    bins = [-0.01, 0.1, 0.5, 1.01] # Bins: [0, 0.1), [0.1, 0.5), [0.5, 1.0]
-    labels = ['Rare (<10%)', 'Moderate (10-50%)', 'Stable (>50%)']
+    bins = [-0.01, 0.05, 0.5, 1.01] # Bins: [0, 0.05), [0.05, 0.5), [0.5, 1.0]
+    labels = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
 
     stability_bins = pd.cut(pair_freq_train, bins=bins, labels=labels, right=False)
     # stability_bins = stability_bins.cat.add_categories('Undefined').fillna('Undefined') # Alignment handled later
@@ -1164,7 +1164,7 @@ def plot_metrics_by_stability(gt_eval_series, pred_eval_series, stability_bins, 
             pair_count = bin_counts.get(bin_label, 0) # Get count for this bin
 
             # Rename Moderate -> Uncommon for file output
-            output_label = "Uncommon (10-50%)" if bin_label == "Moderate (10-50%)" else bin_label
+            output_label = "Uncommon (5-50%)" if bin_label == "Moderate (5-50%)" else bin_label
             output_label = "Not in Train" if bin_label == "Undefined" else output_label # Rename Undefined
             print(f"\nMetrics for {output_label} interactions ({pair_count} pairs):", file=scores)
 
@@ -1205,7 +1205,7 @@ def plot_metrics_by_stability(gt_eval_series, pred_eval_series, stability_bins, 
     # Optionally drop 'Undefined' row if you don't want to plot it
     metrics_df_plot = metrics_df.drop('Undefined', errors='ignore') 
     # Ensure desired plot order if needed
-    plot_order = [l for l in ['Rare (<10%)', 'Moderate (10-50%)', 'Stable (>50%)'] if l in metrics_df_plot.index]
+    plot_order = [l for l in ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)'] if l in metrics_df_plot.index]
     metrics_df_plot = metrics_df_plot.reindex(plot_order)
 
     # Plotting
@@ -1288,7 +1288,7 @@ def plot_f1_distribution_by_stability(f1_df, stability_bins, output_dir):
 
     # Plotting (Boxplot)
     plt.figure(figsize=(10, 7))
-    bin_order = [b for b in ['Rare (<10%)', 'Moderate (10-50%)', 'Stable (>50%)'] if b in f1_df_plot['Stability Bin'].unique()]
+    bin_order = [b for b in ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)'] if b in f1_df_plot['Stability Bin'].unique()]
     if bin_order:
          sns.boxplot(data=f1_df_plot, x='Stability Bin', y='F1', order=bin_order, palette='viridis')
          plt.title('Distribution of Per-Pair F1 Scores by Stability Bin (based on Training Freq.)')
@@ -1325,7 +1325,7 @@ def plot_train_freq_vs_test_f1(pair_freq_train, f1_df, stability_bins, output_di
     combined_df = combined_df.dropna(subset=['Stability Bin', 'Train Frequency', 'F1'])
 
     plt.figure(figsize=(12, 8))
-    bin_order = [b for b in ['Rare (<10%)', 'Moderate (10-50%)', 'Stable (>50%)'] if b in combined_df['Stability Bin'].unique()]
+    bin_order = [b for b in ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)'] if b in combined_df['Stability Bin'].unique()]
     
     sns.scatterplot(
         data=combined_df, 
