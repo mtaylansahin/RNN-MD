@@ -82,37 +82,35 @@ class MetricsCalculator:
             gt_eval, pred_eval, baseline_eval = self._prepare_evaluation_series(processed_data)
             
             # Define all pairs and timestamps for complete indices
-            all_pairs_in_data = gt_eval.index.get_level_values(0).unique()
+            # For MODEL metrics, only include pairs from GT and MODEL predictions
+            model_pairs = gt_eval.index.get_level_values(0).unique()
             if not pred_eval.empty:
-                all_pairs_in_data = all_pairs_in_data.union(pred_eval.index.get_level_values(0).unique())
-            if baseline_eval is not None and not baseline_eval.empty:
-                all_pairs_in_data = all_pairs_in_data.union(baseline_eval.index.get_level_values(0).unique())
+                model_pairs = model_pairs.union(pred_eval.index.get_level_values(0).unique())
             
-            if all_pairs_in_data.empty and processed_data.total_possible_pairs > 0:
-                 # Fallback if gt_eval and pred_eval might be empty but we know total_possible_pairs
-                 # This case needs a defined list of pairs, which is not directly available.
-                 # For now, this path assumes all_pairs_in_data will be non-empty if there's data.
-                 # If processed_data.all_pairs (hypothetical) existed, it would be better.
-                 # Using a placeholder if absolutely necessary and total_possible_pairs implies existence.
-                 # This situation should ideally be handled by ensuring gt_eval/pred_eval are representative.
-                 pass
-
-
-            global_complete_index = pd.MultiIndex.from_product(
-                [all_pairs_in_data, processed_data.test_timestamps],
+            # Use separate complete indices for model and baseline to avoid excluding pairs
+            model_complete_index = pd.MultiIndex.from_product(
+                [model_pairs, processed_data.test_timestamps],
                 names=['pair', 'time_stamp']
             )
             
             # Calculate baseline metrics
             baseline_metrics = None
             if baseline_eval is not None and not baseline_eval.empty:
+                # Build complete index that covers any pairs present in baseline
+                baseline_pairs = baseline_eval.index.get_level_values(0).unique().union(
+                    gt_eval.index.get_level_values(0).unique()
+                )
+                baseline_complete_index = pd.MultiIndex.from_product(
+                    [baseline_pairs, processed_data.test_timestamps],
+                    names=['pair', 'time_stamp']
+                )
                 baseline_metrics = self._calculate_metrics(
-                    gt_eval, baseline_eval, global_complete_index
+                    gt_eval, baseline_eval, baseline_complete_index
                 )
             
             # Calculate model metrics
             model_metrics = self._calculate_metrics(
-                gt_eval, pred_eval, global_complete_index
+                gt_eval, pred_eval, model_complete_index
             )
             
             # Calculate metrics by stability
@@ -120,9 +118,9 @@ class MetricsCalculator:
                 gt_eval, pred_eval, processed_data
             )
             
-            # Calculate metrics over time
+            # Calculate metrics over time using the model pairs scope
             metrics_over_time = self._calculate_metrics_over_time(
-                gt_eval, pred_eval, processed_data, all_pairs_in_data
+                gt_eval, pred_eval, processed_data, model_pairs
             )
             
             # Calculate cumulative errors
@@ -250,19 +248,30 @@ class MetricsCalculator:
             self.logger.warning("No stability bins available, skipping stability analysis")
             return metrics_by_bin
         
-        # Get evaluation pairs from ground truth
-        eval_pairs_from_gt = gt_eval.index.get_level_values(0).unique()
+        # Get evaluation pairs from ground truth AND model predictions (to include FP-only pairs)
+        eval_pairs_union = gt_eval.index.get_level_values(0).unique().union(
+            pred_eval.index.get_level_values(0).unique()
+        )
         
-        # Align stability bins with evaluation pairs
-        stability_bins_aligned = (
+        # Align stability bins with evaluation pairs for MODEL metrics
+        stability_bins_aligned_model = (
             processed_data.stability_bins
-            .reindex(eval_pairs_from_gt)
+            .reindex(eval_pairs_union)
             .cat.add_categories('Undefined')
             .fillna('Undefined')
         )
         
-        for bin_label in stability_bins_aligned.cat.categories:
-            pairs_in_bin = stability_bins_aligned[stability_bins_aligned == bin_label].index
+        # Prepare baseline pairs union (GT ∪ BASELINE) if baseline exists
+        baseline_pairs_union = None
+        if not processed_data.baseline_full.empty:
+            baseline_pairs_union = set(processed_data.baseline_full['pair'].unique())
+            baseline_pairs_union = pd.Index(baseline_pairs_union).union(
+                gt_eval.index.get_level_values(0).unique()
+            )
+        
+        for bin_label in stability_bins_aligned_model.cat.categories:
+            # MODEL: pairs_in_bin based on GT ∪ MODEL PRED pairs
+            pairs_in_bin = stability_bins_aligned_model[stability_bins_aligned_model == bin_label].index
             pair_count_for_bin = len(pairs_in_bin)
             
             if pairs_in_bin.empty:
@@ -300,8 +309,24 @@ class MetricsCalculator:
                 # Calculate baseline Mean Pairwise F1 for this stability bin if baseline data exists
                 baseline_bin_mean_pairwise_f1 = None
                 if not processed_data.baseline_full.empty:
+                    # BASELINE: define its own pairs_in_bin set
+                    if bin_label == 'Undefined':
+                        # Pairs not present in training stability bins
+                        train_pairs = processed_data.stability_bins.index
+                        if baseline_pairs_union is not None:
+                            baseline_pairs_in_bin = baseline_pairs_union.difference(train_pairs)
+                        else:
+                            baseline_pairs_in_bin = pd.Index([])
+                    else:
+                        # Pairs that belong to this bin in training, intersected with baseline evaluation scope
+                        train_pairs_in_bin = processed_data.stability_bins[processed_data.stability_bins == bin_label].index
+                        if baseline_pairs_union is not None:
+                            baseline_pairs_in_bin = pd.Index(train_pairs_in_bin).intersection(baseline_pairs_union)
+                        else:
+                            baseline_pairs_in_bin = pd.Index(train_pairs_in_bin)
+
                     baseline_bin_mean_pairwise_f1 = self._calculate_mean_pairwise_f1_for_bin(
-                        processed_data, pairs_in_bin, "baseline"
+                        processed_data, baseline_pairs_in_bin, "baseline"
                     )
 
             metrics_by_bin[bin_label] = StabilityBinDetail(
@@ -561,23 +586,31 @@ class MetricsCalculator:
         """
         try:
             # Merge ground truth and predictions
+            # Build full grids to ensure negatives are included, then outer-join
+            gt_full = ground_truth_df.add_suffix('_gt')
+            pred_full = predictions_df.add_suffix(f'_{prediction_type}')
             merged = pd.merge(
-                ground_truth_df.add_suffix('_gt'),
-                predictions_df.add_suffix(f'_{prediction_type}'),
+                gt_full,
+                pred_full,
                 left_on=['pair_gt', 'time_stamp_gt'],
                 right_on=[f'pair_{prediction_type}', f'time_stamp_{prediction_type}'],
-                how='inner'
+                how='outer'
             )
             
             if merged.empty:
                 return None
             
+            # Fill missing pair id and presents before filtering so prediction-only pairs are kept
+            merged['pair_gt'] = merged['pair_gt'].fillna(merged[f'pair_{prediction_type}'])
+            merged['present_gt'] = merged['present_gt'].fillna(0).astype(int)
+            merged[f'present_{prediction_type}'] = merged[f'present_{prediction_type}'].fillna(0).astype(int)
+
             # Filter to specific pairs if requested
             if pairs_filter is not None and not pairs_filter.empty:
                 merged = merged[merged['pair_gt'].isin(pairs_filter)]
                 if merged.empty:
                     return None
-            
+
             per_edge_stats = []
             for pair, group in merged.groupby('pair_gt'):
                 gt = group['present_gt']

@@ -302,8 +302,10 @@ class DataProcessor:
         baseline_df = pd.DataFrame(baseline_data)
         
         # Create full grid including non-baseline pairs
+        # Include training pairs as well to properly evaluate baseline false positives
+        all_pairs_for_baseline = set(all_test_pairs) | set(train_pairs)
         full_baseline = self._create_interaction_grid(
-            baseline_df, all_test_pairs, test_timestamps, "baseline"
+            baseline_df, all_pairs_for_baseline, test_timestamps, "baseline"
         )
         
         return full_baseline
@@ -331,7 +333,9 @@ class DataProcessor:
                 self.logger.warning("No timestamps in training data")
                 return None, None
             
-            pair_counts = train_data.groupby('pair').size()
+            # Count unique timestamps per pair to measure presence frequency across time
+            # Using nunique on 'time_stamp' avoids overcounting multiple relations at the same time
+            pair_counts = train_data.groupby('pair')['time_stamp'].nunique()
             pair_freq = pair_counts / total_train_timestamps
             
             # Define stability bins
