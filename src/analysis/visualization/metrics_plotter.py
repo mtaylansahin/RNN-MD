@@ -63,6 +63,16 @@ class MetricsPlotter(BasePlotter):
                     scores_file_path
                 )
                 generated_plots.append(stability_metrics_path)
+            
+            # Plot test-frequency-based stability metrics if available
+            if (hasattr(processed_data, 'stability_bins_test') and processed_data.stability_bins_test is not None 
+                and hasattr(metrics_report, 'metrics_by_test_stability') and metrics_report.metrics_by_test_stability):
+                stability_metrics_test_path = self._plot_metrics_by_test_stability(
+                    metrics_report,
+                    processed_data.stability_bins_test,
+                    scores_file_path
+                )
+                generated_plots.append(stability_metrics_test_path)
                 
                 # Calculate and plot per-edge F1 scores
                 f1_df = self._calculate_per_edge_f1(
@@ -533,6 +543,131 @@ class MetricsPlotter(BasePlotter):
             return plot_path
         else:
             self.logger.warning("No data to plot for metrics by stability")
+            return ""
+
+    def _plot_metrics_by_test_stability(
+        self,
+        metrics_report: MetricsReport,
+        stability_bins_info_test: pd.Series,
+        scores_file_path: str
+    ) -> str:
+        """Plot performance metrics by stability bins using TEST frequency bins from MetricsReport."""
+        self.logger.info("Generating metrics by test-based stability plot from report data")
+        
+        if not getattr(metrics_report, 'metrics_by_test_stability', None):
+            self.logger.warning("No metrics by test stability data in report, skipping plot.")
+            return ""
+        
+        plot_data = []
+        for bin_label, stability_detail in metrics_report.metrics_by_test_stability.items():
+            plot_data.append({
+                'Bin Label': bin_label,
+                'Recall': stability_detail.Recall,
+                'Precision': stability_detail.Precision,
+                'F1': stability_detail.F1,
+                'MCC': stability_detail.MCC,
+                'Mean Pairwise F1': stability_detail.mean_pairwise_f1,
+                'Baseline Mean Pairwise F1': stability_detail.baseline_mean_pairwise_f1 if stability_detail.baseline_mean_pairwise_f1 is not None else None,
+                'Pair Count': stability_detail.pair_count
+            })
+        
+        metrics_df_from_report = pd.DataFrame(plot_data).set_index('Bin Label')
+        
+        # Append to scores file using report data
+        with open(scores_file_path, "a") as scores_output_file:
+            print("\n--- Performance by Interaction Stability (TEST Set Frequency) ---", file=scores_output_file)
+            bin_order_for_scoring = list(metrics_report.metrics_by_test_stability.keys())
+            for bin_label in bin_order_for_scoring:
+                if bin_label not in metrics_report.metrics_by_test_stability:
+                    continue
+                stability_detail = metrics_report.metrics_by_test_stability[bin_label]
+                pair_count = stability_detail.pair_count
+                output_label = bin_label
+                if bin_label == "Moderate (5-50%)": output_label = "Uncommon (5-50%)"
+                if bin_label == "Undefined": output_label = "Not in Test"
+                print(f"\nMetrics for {output_label} interactions ({pair_count} pairs):", file=scores_output_file)
+                if pair_count == 0 and stability_detail.TP == 0:
+                    print("No interactions found or processed in this bin for metric calculation.", file=scores_output_file)
+                else:
+                    print(f"Recall: {stability_detail.Recall:.4f}, Precision: {stability_detail.Precision:.4f}, "
+                          f"TPR: {stability_detail.TPR:.4f}, FPR: {stability_detail.FPR:.4f}, "
+                          f"F1: {stability_detail.F1:.4f}, MCC: {stability_detail.MCC:.4f}, "
+                          f"Mean Pairwise F1: {stability_detail.mean_pairwise_f1:.4f}", file=scores_output_file)
+                    if stability_detail.baseline_mean_pairwise_f1 is not None:
+                        print(f"Baseline Mean Pairwise F1: {stability_detail.baseline_mean_pairwise_f1:.4f}", file=scores_output_file)
+        
+        metrics_df_plot = metrics_df_from_report.drop('Undefined', errors='ignore')
+        columns_to_plot = ['Recall', 'Precision', 'F1', 'MCC', 'Mean Pairwise F1']
+        if 'Baseline Mean Pairwise F1' in metrics_df_plot.columns:
+            has_baseline_data = metrics_df_plot['Baseline Mean Pairwise F1'].notna().any()
+            if has_baseline_data:
+                columns_to_plot.append('Baseline Mean Pairwise F1')
+        metrics_df_plot = metrics_df_plot[columns_to_plot]
+        plot_order_preference = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
+        actual_plot_order = [l for l in plot_order_preference if l in metrics_df_plot.index]
+        if not actual_plot_order:
+            if metrics_df_plot.empty:
+                self.logger.warning("No data to plot for metrics by test stability after filtering.")
+                return ""
+            else:
+                actual_plot_order = metrics_df_plot.index.tolist()
+        metrics_df_plot = metrics_df_plot.reindex(actual_plot_order)
+        
+        if not metrics_df_plot.empty:
+            metric_colors = {
+                'Recall': '#2E86AB',
+                'Precision': '#A23B72',
+                'F1': '#F18F01',
+                'MCC': '#C73E1D',
+                'Mean Pairwise F1': '#36213E',
+                'Baseline Mean Pairwise F1': '#7A9E7E'
+            }
+            fig, ax = plt.subplots(figsize=(12, 8))
+            cols_to_plot_in_bar = [col for col in columns_to_plot if col in metrics_df_plot.columns]
+            colors_for_bars = [metric_colors[col] for col in cols_to_plot_in_bar]
+            metrics_df_plot[cols_to_plot_in_bar].plot(
+                kind='bar', 
+                ax=ax, 
+                color=colors_for_bars,
+                width=0.8,
+                edgecolor='white',
+                linewidth=0.7
+            )
+            for container in ax.containers:
+                ax.bar_label(container, fmt='%.3f', label_type='edge', padding=3, fontsize=9, fontweight='bold')
+            x_labels_with_counts = []
+            for bin_label_for_plot in actual_plot_order:
+                count = metrics_df_from_report.loc[bin_label_for_plot, 'Pair Count'] if bin_label_for_plot in metrics_df_from_report.index else 0
+                display_label = "Uncommon (5-50%)" if bin_label_for_plot == "Moderate (5-50%)" else bin_label_for_plot
+                x_labels_with_counts.append(f'{display_label}\n(N={int(count)})')
+            ax.set_xticklabels(x_labels_with_counts, rotation=0, ha='center')
+            ax.set_title('Performance Metrics by Interaction Stability (based on Test Freq.)', 
+                        fontsize=14, fontweight='bold', pad=20)
+            ax.set_xlabel('Stability Bin (Test Set Frequency)', fontsize=12, fontweight='bold')
+            ax.set_ylabel('Score', fontsize=12, fontweight='bold')
+            ax.legend(
+                title='Metric', 
+                title_fontsize=11,
+                fontsize=10,
+                bbox_to_anchor=(1.02, 1), 
+                loc='upper left',
+                frameon=True,
+                fancybox=True,
+                shadow=True
+            )
+            ax.grid(True, axis='y', linestyle='--', alpha=0.4, linewidth=0.8)
+            ax.set_axisbelow(True)
+            ax.set_ylim(bottom=0, top=min(1.1, max(1.05, ax.get_ylim()[1] * 1.08)))
+            ax.tick_params(axis='both', which='major', labelsize=10)
+            ax.tick_params(axis='x', which='major', pad=5)
+            ax.set_facecolor('#f8f9fa')
+            plt.tight_layout(rect=[0, 0, 0.85, 1])
+            filename = 'metrics_by_stability_bar_testfreq.png'
+            plot_path = self.save_plot(filename, fig)
+            self.close_plot(fig)
+            return plot_path
+        else:
+            self.logger.warning("No data to plot for metrics by test stability")
             return ""
     
     def _calculate_per_edge_f1(

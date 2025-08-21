@@ -50,6 +50,7 @@ class MetricsReport:
     baseline_metrics: Optional[PerformanceMetrics]
     model_metrics: PerformanceMetrics
     metrics_by_stability: Dict[str, StabilityBinDetail]
+    metrics_by_test_stability: Dict[str, StabilityBinDetail]
     metrics_over_time: pd.DataFrame
     cumulative_errors: pd.DataFrame
     mean_pairwise_f1: float
@@ -117,6 +118,10 @@ class MetricsCalculator:
             metrics_by_stability = self._calculate_metrics_by_stability(
                 gt_eval, pred_eval, processed_data
             )
+            # Calculate metrics by test-based stability
+            metrics_by_test_stability = self._calculate_metrics_by_test_stability(
+                gt_eval, pred_eval, processed_data
+            )
             
             # Calculate metrics over time using the model pairs scope
             metrics_over_time = self._calculate_metrics_over_time(
@@ -140,6 +145,7 @@ class MetricsCalculator:
                 baseline_metrics=baseline_metrics,
                 model_metrics=model_metrics,
                 metrics_by_stability=metrics_by_stability,
+                metrics_by_test_stability=metrics_by_test_stability,
                 metrics_over_time=metrics_over_time,
                 cumulative_errors=cumulative_errors,
                 mean_pairwise_f1=mean_pairwise_f1,
@@ -331,6 +337,102 @@ class MetricsCalculator:
 
             metrics_by_bin[bin_label] = StabilityBinDetail(
                 **vars(perf_metrics_obj), 
+                pair_count=pair_count_for_bin,
+                mean_pairwise_f1=bin_mean_pairwise_f1,
+                baseline_mean_pairwise_f1=baseline_bin_mean_pairwise_f1
+            )
+        
+        return metrics_by_bin
+    
+    def _calculate_metrics_by_test_stability(
+        self,
+        gt_eval: pd.Series,
+        pred_eval: pd.Series,
+        processed_data: ProcessedData
+    ) -> Dict[str, StabilityBinDetail]:
+        """Calculate metrics grouped by test-based stability bins.
+        
+        Bins are derived from test set frequency of pairs.
+        """
+        metrics_by_bin = {}
+        
+        if processed_data.stability_bins_test is None:
+            self.logger.warning("No test-based stability bins available, skipping test stability analysis")
+            return metrics_by_bin
+        
+        # Get evaluation pairs from ground truth AND model predictions (to include FP-only pairs)
+        eval_pairs_union = gt_eval.index.get_level_values(0).unique().union(
+            pred_eval.index.get_level_values(0).unique()
+        )
+        
+        # Align test stability bins with evaluation pairs for MODEL metrics
+        stability_bins_aligned_model = (
+            processed_data.stability_bins_test
+            .reindex(eval_pairs_union)
+            .cat.add_categories('Undefined')
+            .fillna('Undefined')
+        )
+        
+        # Baseline scope
+        baseline_pairs_union = None
+        if not processed_data.baseline_full.empty:
+            baseline_pairs_union = set(processed_data.baseline_full['pair'].unique())
+            baseline_pairs_union = pd.Index(baseline_pairs_union).union(
+                gt_eval.index.get_level_values(0).unique()
+            )
+        
+        for bin_label in stability_bins_aligned_model.cat.categories:
+            pairs_in_bin = stability_bins_aligned_model[stability_bins_aligned_model == bin_label].index
+            pair_count_for_bin = len(pairs_in_bin)
+            
+            if pairs_in_bin.empty:
+                continue
+            
+            gt_bin_filtered = gt_eval[gt_eval.index.get_level_values(0).isin(pairs_in_bin)]
+            pred_bin_filtered = pred_eval[pred_eval.index.get_level_values(0).isin(pairs_in_bin)]
+            
+            current_bin_complete_index = pd.MultiIndex.from_product(
+                [pairs_in_bin, processed_data.test_timestamps], names=['pair', 'time_stamp']
+            )
+            
+            if current_bin_complete_index.empty and (gt_bin_filtered.empty and pred_bin_filtered.empty):
+                perf_metrics_obj = PerformanceMetrics(TP=0,FP=0,FN=0,TN=0,Recall=0,Precision=0,TPR=0,FPR=0,F1=0,MCC=0)
+                bin_mean_pairwise_f1 = 0.0
+                baseline_bin_mean_pairwise_f1 = 0.0
+            elif current_bin_complete_index.empty and not (gt_bin_filtered.empty and pred_bin_filtered.empty):
+                self.logger.warning(f"Test stability bin {bin_label} has data but complete index is empty. Skipping.")
+                continue
+            else:
+                perf_metrics_obj = self._calculate_metrics(
+                    gt_bin_filtered, pred_bin_filtered, current_bin_complete_index
+                )
+                
+                bin_mean_pairwise_f1 = self._calculate_mean_pairwise_f1_for_bin(
+                    processed_data, pairs_in_bin, "model"
+                )
+                
+                baseline_bin_mean_pairwise_f1 = None
+                if not processed_data.baseline_full.empty:
+                    if bin_label == 'Undefined':
+                        # Pairs not present in test stability bins
+                        test_pairs = processed_data.stability_bins_test.index
+                        if baseline_pairs_union is not None:
+                            baseline_pairs_in_bin = baseline_pairs_union.difference(test_pairs)
+                        else:
+                            baseline_pairs_in_bin = pd.Index([])
+                    else:
+                        test_pairs_in_bin = processed_data.stability_bins_test[processed_data.stability_bins_test == bin_label].index
+                        if baseline_pairs_union is not None:
+                            baseline_pairs_in_bin = pd.Index(test_pairs_in_bin).intersection(baseline_pairs_union)
+                        else:
+                            baseline_pairs_in_bin = pd.Index(test_pairs_in_bin)
+                    
+                    baseline_bin_mean_pairwise_f1 = self._calculate_mean_pairwise_f1_for_bin(
+                        processed_data, baseline_pairs_in_bin, "baseline"
+                    )
+            
+            metrics_by_bin[bin_label] = StabilityBinDetail(
+                **vars(perf_metrics_obj),
                 pair_count=pair_count_for_bin,
                 mean_pairwise_f1=bin_mean_pairwise_f1,
                 baseline_mean_pairwise_f1=baseline_bin_mean_pairwise_f1

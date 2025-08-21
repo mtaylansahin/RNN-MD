@@ -41,6 +41,9 @@ class ProcessedData:
     # Stability analysis
     stability_bins: Optional[pd.Series] = None
     pair_freq_train: Optional[pd.Series] = None
+    # Test-based stability analysis
+    stability_bins_test: Optional[pd.Series] = None
+    pair_freq_test: Optional[pd.Series] = None
 
 
 class DataProcessor:
@@ -86,6 +89,8 @@ class DataProcessor:
             
             # Calculate stability bins
             stability_bins, pair_freq_train = self._calculate_stability_bins(train_processed)
+            # Calculate test-based stability bins
+            stability_bins_test, pair_freq_test = self._calculate_test_stability_bins(test_processed)
             
             # Calculate total possible pairs
             total_possible_pairs = self._calculate_total_possible_pairs(data)
@@ -102,7 +107,9 @@ class DataProcessor:
                 test_timestamps=test_timestamps,
                 total_possible_pairs=total_possible_pairs,
                 stability_bins=stability_bins,
-                pair_freq_train=pair_freq_train
+                pair_freq_train=pair_freq_train,
+                stability_bins_test=stability_bins_test,
+                pair_freq_test=pair_freq_test
             )
             
             self.logger.info("Data processing completed successfully")
@@ -352,6 +359,47 @@ class DataProcessor:
             
         except Exception as e:
             self.logger.error(f"Failed to calculate stability bins: {e}")
+            return None, None
+    
+    def _calculate_test_stability_bins(
+        self,
+        test_data: pd.DataFrame
+    ) -> Tuple[Optional[pd.Series], Optional[pd.Series]]:
+        """Calculate stability bins based on test frequency.
+        
+        Args:
+            test_data: Test dataset
+            
+        Returns:
+            Tuple of (stability_bins_test, pair_frequencies_test)
+        """
+        try:
+            if test_data.empty:
+                self.logger.warning("Empty test data, cannot calculate test-based stability bins")
+                return None, None
+            
+            total_test_timestamps = test_data['time_stamp'].nunique()
+            if total_test_timestamps == 0:
+                self.logger.warning("No timestamps in test data")
+                return None, None
+            
+            # Count unique timestamps per pair in test to avoid overcounting
+            pair_counts_test = test_data.groupby('pair')['time_stamp'].nunique()
+            pair_freq_test = pair_counts_test / total_test_timestamps
+            
+            # Use the same bin edges and labels as training-based stability
+            bins = [-0.01, 0.05, 0.5, 1.01]
+            labels = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
+            
+            stability_bins_test = pd.cut(pair_freq_test, bins=bins, labels=labels, right=False)
+            
+            self.logger.info("Test-based stability bin distribution:")
+            for label, count in stability_bins_test.value_counts().items():
+                self.logger.info(f"  {label}: {count} pairs")
+            
+            return stability_bins_test, pair_freq_test
+        except Exception as e:
+            self.logger.error(f"Failed to calculate test-based stability bins: {e}")
             return None, None
     
     def _calculate_total_possible_pairs(self, data: LoadedData) -> int:
