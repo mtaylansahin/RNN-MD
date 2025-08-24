@@ -102,13 +102,21 @@ class ExperimentLogger:
         self.log_directory = Path(log_directory)
         self.log_directory.mkdir(parents=True, exist_ok=True)
         
-        self._setup_experiment_logging()
+        # Attach a file handler to a child logger without reconfiguring root
         self.logger = get_logger(f"experiment.{experiment_name}")
+        log_file = self.log_directory / f"{self.experiment_name}.log"
+        if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == str(log_file) for h in self.logger.handlers):
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(logging.Formatter(
+                fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            ))
+            self.logger.addHandler(file_handler)
     
     def _setup_experiment_logging(self) -> None:
-        """Set up logging specifically for this experiment."""
-        log_file = self.log_directory / f"{self.experiment_name}.log"
-        setup_logging(log_file=str(log_file), experiment_name=self.experiment_name)
+        """Deprecated: logging is configured at process start; ExperimentLogger only adds a file handler."""
+        pass
     
     def log_experiment_start(self, config_dict: dict) -> None:
         """Log the start of an experiment with configuration.

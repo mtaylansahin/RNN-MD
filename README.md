@@ -96,42 +96,10 @@ srun python RNN-MD.py --data_dir test-run --replica 1 --chain1 A --chain2 C --tr
 exit
 ```
 
-### Usage of Individual Scripts
+### Usage of Individual Steps (current)
 
-* The `format.py` script takes interface outputs as inputs to generates *train.txt*, *valid.txt*, *test.txt*, *stat.txt* files in [RNN-MD format](#dataset-formatting) according to you specified train and valid ratios. Example usage is following:
-
-```
-python format.py [input_folder] [atomic/residue] [replica_no] [chain 1] [chain 2] [train_ratio] [valid_ratio]
-```
-- After generating **train.txt, valid.txt, test.txt, and stat.txt**, move them  to the `RE-Net/data/<case_id>` folder along with the `get_history_graph.py` script and the `labels.txt` file. Then, run the *get_history_graph.py* script to generate history graphs for your training set. Finally, you can train the model with your specified parameters, make predictions and create plots by running the scripts below.
-
-```
-python model_train.py --dropout [dropout] --learning_rate [learning rate] --batch_size [batch size] --pretrain_epochs [pretrain epochs] --train_epochs [train epochs] --n_hidden [number of hidden] your_file_name_here
-python result.py --input_dir [where is inputs (eg.RE-Net/data/test-run)] --output_dir [where is output move (eg. results/test-run_results_kg4fsd) --ouput_file_dir (eg. results/test-run_results_kg4fsd/test-run_prediction_set_1.txt)]
-```
-
-* If you are working on an HPC you must use slurm file to run individual scripts. Example file is given below: 
-
-```
-#!/bin/bash
-#SBATCH --partition=ulimited3
-#SBATCH --job-name=RNN-MD
-#SBATCH --nodes=1
-#SBATCH --gres=gpu:1
-#SBATCH --mail-type=END
-#SBATCH --mail-user=[mail]
-#SBATCH --output=md_ml_%j.out
-#SBATCH --error=md_ml_%j.err
-
-
-module load cuda92/toolkit/9.2.88
-
-srun python format.py test-run residue 1 A C 0.8 0.1
-srun python model_train.py --dropout 0.5 --learning_rate 0.001 --batch_size 128 --pretrain_epochs 10 --train_epochs 30 --n_hidden 100 test-run
-srun python result.py --input_dir RE-Net/data/test-run --output_dir results/test-run_results_kg4fsd --ouput_file_dir results/test-run_results_kg4fsd/test-run_prediction_set_1.txt
- 
-exit
-```
+- Data preprocessing is now handled in-process by `src/pipelines/data_preprocessor.py` and orchestrated by `src/main.py`. You no longer need to run `format.py` directly.
+- The training and analysis steps are kicked off from `src/main.py`, which performs preprocessing, prepares RE-Net data, runs training/testing, and generates analysis outputs per run.
 
 ## RNN-MD Output Files
 

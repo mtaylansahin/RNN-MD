@@ -275,30 +275,34 @@ class ResultsManager:
             metrics_file_path = os.path.join(self.config.output_directory, "PerformanceMetrics.txt")
             self.metrics_calculator.write_metrics_report(metrics_report, metrics_file_path)
             
-            # Generate ground truth CSV
-            ground_truth_csv = self._generate_ground_truth_csv(processed_data)
+            # Generate ground truth CSV/JSON
+            ground_truth_records = self._generate_ground_truth_csv(processed_data)
             gt_csv_path = os.path.join(self.config.output_directory, "ground_truth.csv")
-            result = self.file_manager.write_json_file(
-                ground_truth_csv,  # Already a list of dictionaries
-                gt_csv_path.replace('.csv', '.json')  # Use JSON for complex data
-            )
+            try:
+                import pandas as pd
+                pd.DataFrame(ground_truth_records).to_csv(gt_csv_path, index=False)
+            except Exception as e:
+                self.logger.warning(f"Failed to write ground_truth.csv as CSV, falling back to JSON: {e}")
+                self.file_manager.write_json_file(ground_truth_records, gt_csv_path.replace('.csv', '.json'))
             
-            # Generate prediction CSV
-            prediction_csv = self._generate_prediction_csv(processed_data)
+            # Generate prediction CSV/JSON
+            prediction_records = self._generate_prediction_csv(processed_data)
             pred_csv_path = os.path.join(self.config.output_directory, "prediction.csv")
-            result = self.file_manager.write_json_file(
-                prediction_csv,  # Already a list of dictionaries
-                pred_csv_path.replace('.csv', '.json')  # Use JSON for complex data
-            )
+            try:
+                import pandas as pd
+                pd.DataFrame(prediction_records).to_csv(pred_csv_path, index=False)
+            except Exception as e:
+                self.logger.warning(f"Failed to write prediction.csv as CSV, falling back to JSON: {e}")
+                self.file_manager.write_json_file(prediction_records, pred_csv_path.replace('.csv', '.json'))
             
             # Generate heatmap similarity score (if both CSVs are similar in structure)
             similarity_score_path = os.path.join(self.config.output_directory, "heatmap_similarity_score.txt")
-            self._calculate_heatmap_similarity(ground_truth_csv, prediction_csv, similarity_score_path)
+            self._calculate_heatmap_similarity(ground_truth_records, prediction_records, similarity_score_path)
             
             outputs_generated = [
                 "PerformanceMetrics.txt",
-                "ground_truth.json",
-                "prediction.json",
+                "ground_truth.csv",
+                "prediction.csv",
                 "heatmap_similarity_score.txt"
             ]
             

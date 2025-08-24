@@ -14,59 +14,45 @@ from core.config import ConfigManager, ExperimentConfig
 from core.utils import setup_logging, get_logger, ExperimentLogger
 from adapters.renet import RENetAdapter
 from analysis import ResultsManager, AnalysisConfig
+from pipelines.data_preprocessor import run_preprocessing
 
 
-def run_data_preprocessing(config: ExperimentConfig, logger: ExperimentLogger) -> bool:
-    """Run data preprocessing using the format.py script.
-    
-    Args:
-        config: Experiment configuration
-        logger: Experiment logger
-        
-    Returns:
-        True if preprocessing successful, False otherwise
-    """
+def run_data_preprocessing(config: ExperimentConfig, logger: ExperimentLogger, run_id: str) -> str:
+    """Run data preprocessing using in-process preprocessor and return output directory."""
     logger.log_phase_start("data_preprocessing")
-    
     try:
-        # Run format.py with configured parameters
-        format_args = [
-            config.data_config.data_directory,
-            config.data_config.interaction_type,
-            config.data_config.replica,
-            config.data_config.chain1,
-            config.data_config.chain2,
-            str(config.data_config.train_ratio),
-            str(config.data_config.validation_ratio)
-        ]
-        
-        result = subprocess.run(
-            [sys.executable, "format.py"] + format_args,
-            check=True,
-            capture_output=True,
-            text=True
+        # Create run-scoped preprocess directory
+        preprocess_dir = os.path.join(
+            config.get_results_directory(run_id),
+            "preprocess"
         )
-        
+        Path(preprocess_dir).mkdir(parents=True, exist_ok=True)
+        res = run_preprocessing(
+            data_directory=config.data_config.data_directory,
+            interaction_type=config.data_config.interaction_type,
+            replica=config.data_config.replica,
+            chain1=config.data_config.chain1,
+            chain2=config.data_config.chain2,
+            train_ratio=config.data_config.train_ratio,
+            validation_ratio=config.data_config.validation_ratio,
+            output_directory=preprocess_dir
+        )
         logger.logger.info("Data preprocessing completed successfully")
-        logger.log_phase_completion("data_preprocessing", {"status": "success"})
-        return True
-        
-    except subprocess.CalledProcessError as e:
-        error_msg = f"Data preprocessing failed: {e.stderr}"
-        logger.log_error(error_msg, e)
-        logger.log_phase_completion("data_preprocessing", {"status": "failed", "error": error_msg})
-        return False
+        logger.log_phase_completion("data_preprocessing", {"status": "success", "output_directory": preprocess_dir})
+        return preprocess_dir
     except Exception as e:
         error_msg = f"Unexpected error during data preprocessing: {e}"
         logger.log_error(error_msg, e)
         logger.log_phase_completion("data_preprocessing", {"status": "failed", "error": error_msg})
-        return False
+        raise
 
 
 def run_hyperparameter_sweep(
     config: ExperimentConfig,
     renet_adapter: RENetAdapter,
-    logger: ExperimentLogger
+    logger: ExperimentLogger,
+    preprocess_directory: str,
+    dataset_name: str
 ) -> List[Dict[str, Any]]:
     """Run hyperparameter sweep for all configured parameter combinations.
     
@@ -109,13 +95,14 @@ def run_hyperparameter_sweep(
         
         logger.log_hyperparameter_run(run_id, hyperparameters)
         
-        # Generate unique run ID
+        # Use provided dataset_name and run-scoped results directory
         run_identifier = renet_adapter.generate_run_id()
         results_directory = config.get_results_directory(run_identifier)
         
         try:
             # Run pretraining
             pretrain_result = renet_adapter.run_pretraining(
+                dataset_name=dataset_name,
                 dropout=dropout,
                 n_hidden=n_hidden,
                 learning_rate=learning_rate,
@@ -141,6 +128,7 @@ def run_hyperparameter_sweep(
             
             # Run training
             train_result = renet_adapter.run_training(
+                dataset_name=dataset_name,
                 dropout=dropout,
                 n_hidden=n_hidden,
                 learning_rate=learning_rate,
@@ -166,8 +154,10 @@ def run_hyperparameter_sweep(
             
             # Run testing
             test_result = renet_adapter.run_testing(
+                dataset_name=dataset_name,
                 n_hidden=n_hidden,
-                run_id=run_identifier
+                run_id=run_identifier,
+                results_directory=os.path.join(results_directory, "outputs")
             )
             
             if not test_result.success:
@@ -202,6 +192,9 @@ def run_hyperparameter_sweep(
                 "status": "success",
                 "output_file": test_result.output_file,
                 "metadata_file": metadata_file,
+                "dataset_name": dataset_name,
+                "preprocess_directory": preprocess_directory,
+                "results_directory": results_directory,
                 "execution_times": {
                     "pretraining": pretrain_result.execution_time,
                     "training": train_result.execution_time,
@@ -267,11 +260,10 @@ def run_visualization_analysis(
     logger.log_phase_start(f"visualization_analysis_run_{result['run_id']}")
     
     try:
-        # Determine input directory (original data directory)
-        input_directory = experiment_config.data_config.data_directory
-        
-        # Get results directory
+        # Prefer the run's preprocess directory if provided
         results_directory = experiment_config.get_results_directory(result['run_identifier'])
+        input_directory = result.get('preprocess_directory', experiment_config.data_config.data_directory)
+
         
         # Create analysis subdirectory within results
         analysis_output_dir = os.path.join(results_directory, "analysis")
@@ -405,29 +397,25 @@ def main():
         }
         experiment_logger.log_experiment_start(config_dict)
         
-        # Save configuration for reproducibility
-        config_manager.save_configuration(
-            config,
-            f"configs/{config.experiment_name}_config.json"
-        )
         
         # Initialize RE-Net adapter
         renet_adapter = RENetAdapter(config)
         
-        # Step 1: Data preprocessing
-        if not run_data_preprocessing(config, experiment_logger):
-            experiment_logger.log_error("Data preprocessing failed, aborting experiment")
-            return 1
+        # Generate dataset name for this experiment session (stable across sweep)
+        dataset_name = f"{config.experiment_name}_{renet_adapter.generate_run_id()}"
         
-        # Step 2: Dataset preparation for RE-Net
+        # Step 1: Data preprocessing (run-scoped)
+        preprocess_dir = run_data_preprocessing(config, experiment_logger, dataset_name)
+        
+        # Step 2: Dataset preparation for RE-Net using run-scoped dataset name
         experiment_logger.log_phase_start("dataset_preparation")
-        if not renet_adapter.prepare_dataset():
+        if not renet_adapter.prepare_dataset(preprocess_directory=preprocess_dir, dataset_name=dataset_name):
             experiment_logger.log_error("Dataset preparation failed, aborting experiment")
             return 1
         experiment_logger.log_phase_completion("dataset_preparation", {"status": "success"})
         
         # Step 3: Hyperparameter sweep
-        results = run_hyperparameter_sweep(config, renet_adapter, experiment_logger)
+        results = run_hyperparameter_sweep(config, renet_adapter, experiment_logger, preprocess_dir, dataset_name)
         
         # Step 4: Cleanup
         experiment_logger.log_phase_start("cleanup")

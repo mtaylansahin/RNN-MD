@@ -1,7 +1,6 @@
 """Configuration manager for parsing and validating experiment configurations."""
 
 import argparse
-import json
 import os
 from typing import List, Union, Optional
 import numpy as np
@@ -122,11 +121,6 @@ class ConfigManager:
             default=999,
             help='Random seed for reproducibility'
         )
-        system_group.add_argument(
-            '--config_file',
-            type=str,
-            help='Path to JSON configuration file (overrides command line args)'
-        )
         
         return parser
     
@@ -144,10 +138,6 @@ class ConfigManager:
             FileNotFoundError: If config file is specified but not found
         """
         parsed_args = self._parser.parse_args(args)
-        
-        # Load from config file if specified
-        if parsed_args.config_file:
-            return self._load_from_config_file(parsed_args.config_file)
         
         # Parse hyperparameters from command line
         hyperparameters = self._parse_hyperparameters(parsed_args)
@@ -234,86 +224,3 @@ class ConfigManager:
         except (ValueError, TypeError) as e:
             raise ValueError(f"Invalid parameter format '{param_str}': {e}")
     
-    def _load_from_config_file(self, config_file_path: str) -> ExperimentConfig:
-        """Load configuration from JSON file.
-        
-        Args:
-            config_file_path: Path to the JSON configuration file
-            
-        Returns:
-            Loaded ExperimentConfig instance
-            
-        Raises:
-            FileNotFoundError: If config file doesn't exist
-            ValueError: If config file format is invalid
-        """
-        if not os.path.exists(config_file_path):
-            raise FileNotFoundError(f"Configuration file not found: {config_file_path}")
-        
-        try:
-            with open(config_file_path, 'r') as f:
-                config_data = json.load(f)
-            
-            # Parse data configuration
-            data_config = DataConfig(**config_data['data'])
-            
-            # Parse hyperparameter configuration
-            hyperparameters = HyperparameterConfig(**config_data['hyperparameters'])
-            
-            # Parse experiment configuration
-            experiment_config = ExperimentConfig(
-                data_config=data_config,
-                hyperparameters=hyperparameters,
-                **config_data.get('experiment', {})
-            )
-            
-            return experiment_config
-            
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            raise ValueError(f"Invalid configuration file format: {e}")
-    
-    def save_configuration(self, config: ExperimentConfig, output_path: str) -> None:
-        """Save configuration to JSON file.
-        
-        Args:
-            config: ExperimentConfig to save
-            output_path: Path where to save the configuration
-        """
-        config_dict = {
-            'experiment': {
-                'experiment_name': config.experiment_name,
-                'gpu_device': config.gpu_device,
-                'use_cuda': config.use_cuda,
-                'random_seed': config.random_seed,
-                'renet_directory': config.renet_directory,
-                'results_base_directory': config.results_base_directory,
-                'models_directory': config.models_directory,
-                'sequence_length': config.sequence_length,
-                'num_k_parameter': config.num_k_parameter,
-                'model_type': config.model_type,
-                'maxpool': config.maxpool,
-                'gradient_norm_clip': config.gradient_norm_clip,
-                'weight_decay': config.weight_decay,
-                'validation_frequency': config.validation_frequency
-            },
-            'data': {
-                'data_directory': config.data_config.data_directory,
-                'replica': config.data_config.replica,
-                'chain1': config.data_config.chain1,
-                'chain2': config.data_config.chain2,
-                'train_ratio': config.data_config.train_ratio,
-                'validation_ratio': config.data_config.validation_ratio,
-                'interaction_type': config.data_config.interaction_type
-            },
-            'hyperparameters': {
-                'dropout_rates': config.hyperparameters.dropout_rates,
-                'learning_rates': config.hyperparameters.learning_rates,
-                'batch_sizes': config.hyperparameters.batch_sizes,
-                'pretrain_epochs': config.hyperparameters.pretrain_epochs,
-                'train_epochs': config.hyperparameters.train_epochs,
-                'hidden_units': config.hyperparameters.hidden_units
-            }
-        }
-        
-        with open(output_path, 'w') as f:
-            json.dump(config_dict, f, indent=2) 

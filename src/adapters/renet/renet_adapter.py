@@ -87,23 +87,29 @@ class RENetAdapter:
         
         self.logger.info(f"RE-Net installation validated at: {renet_path}")
     
-    def prepare_dataset(self) -> bool:
-        """Prepare dataset for RE-Net training.
+    def prepare_dataset(self, preprocess_directory: str, dataset_name: str) -> bool:
+        """Prepare dataset for RE-Net training using a specific dataset name.
+        
+        Args:
+            preprocess_directory: Directory containing train/valid/test/stat files
+            dataset_name: Unique dataset name to use under RE-Net/data/
         
         Returns:
             True if dataset preparation successful, False otherwise
         """
         try:
-            self.logger.info("Preparing dataset for RE-Net")
+            self.logger.info(f"Preparing dataset for RE-Net: {dataset_name}")
             
-            # Copy required files to RE-Net data directory
+            renet_data_dir = Path(self.config.renet_directory) / "data" / dataset_name
+            renet_data_dir.mkdir(parents=True, exist_ok=True)
+            
             required_files = [
-                "train.txt", "valid.txt", "test.txt", "stat.txt", "get_history_graph.py"
+                "train.txt", "valid.txt", "test.txt", "stat.txt", "labels.txt"
             ]
             
             result = self.file_manager.copy_specific_files(
-                source_directory=self.config.data_config.data_directory,
-                destination_directory=self.config.renet_data_directory,
+                source_directory=preprocess_directory,
+                destination_directory=renet_data_dir,
                 filenames=required_files,
                 overwrite=True
             )
@@ -112,15 +118,27 @@ class RENetAdapter:
                 self.logger.error(f"Failed to copy dataset files: {result.error_message}")
                 return False
             
-            # Generate history graphs
-            self.logger.info("Generating history graphs")
-            graph_result = self.process_manager.generate_history_graph(
-                self.config.experiment_name
-            )
+
+            candidate = Path(preprocess_directory) / "get_history_graph.py"
+            copied_history = False
+            if candidate.exists():
+                copy_res = self.file_manager.copy_specific_files(
+                    source_directory=candidate.parent,
+                    destination_directory=renet_data_dir,
+                    filenames=[candidate.name],
+                    overwrite=True
+                )
+                copied_history = copy_res.success
+            else:
+                self.logger.info("get_history_graph.py not found in preprocess directory; skipping history graph generation")
             
-            if not graph_result.succeeded:
-                self.logger.error(f"History graph generation failed: {graph_result.stderr}")
-                return False
+            if copied_history:
+                self.logger.info("Generating history graphs")
+                graph_result = self.process_manager.generate_history_graph(dataset_name)
+                if not graph_result.succeeded:
+                    self.logger.warning(f"History graph generation failed: {graph_result.stderr}")
+            else:
+                self.logger.info("Skipping history graph generation (script not found)")
             
             self.logger.info("Dataset preparation completed successfully")
             return True
@@ -131,6 +149,7 @@ class RENetAdapter:
     
     def run_pretraining(
         self,
+        dataset_name: str,
         dropout: float,
         n_hidden: int,
         learning_rate: float,
@@ -161,7 +180,7 @@ class RENetAdapter:
         
         try:
             result = self.process_manager.pretrain_model(
-                dataset_name=self.config.experiment_name,
+                dataset_name=dataset_name,
                 dropout=dropout,
                 n_hidden=n_hidden,
                 learning_rate=learning_rate,
@@ -210,6 +229,7 @@ class RENetAdapter:
     
     def run_training(
         self,
+        dataset_name: str,
         dropout: float,
         n_hidden: int,
         learning_rate: float,
@@ -240,7 +260,7 @@ class RENetAdapter:
         
         try:
             result = self.process_manager.train_model(
-                dataset_name=self.config.experiment_name,
+                dataset_name=dataset_name,
                 dropout=dropout,
                 n_hidden=n_hidden,
                 learning_rate=learning_rate,
@@ -287,21 +307,23 @@ class RENetAdapter:
                 error_message=str(e)
             )
     
-    def run_testing(self, n_hidden: int, run_id: str) -> TestingResult:
+    def run_testing(self, dataset_name: str, n_hidden: int, run_id: str, results_directory: str) -> TestingResult:
         """Run RE-Net testing phase.
         
         Args:
+            dataset_name: Unique dataset name used under RE-Net/data
             n_hidden: Number of hidden units
             run_id: Unique identifier for this test run
+            results_directory: Directory where outputs should be stored
             
         Returns:
             TestingResult with operation details
         """
-        self.logger.info(f"Starting testing with n_hidden={n_hidden}, run_id={run_id}")
+        self.logger.info(f"Starting testing with dataset={dataset_name}, n_hidden={n_hidden}, run_id={run_id}")
         
         try:
             result = self.process_manager.test_model(
-                dataset_name=self.config.experiment_name,
+                dataset_name=dataset_name,
                 n_hidden=n_hidden,
                 gpu_device=self.config.gpu_device,
                 num_k=self.config.num_k_parameter
@@ -309,7 +331,7 @@ class RENetAdapter:
             
             if result.succeeded:
                 # Handle output file management
-                output_file, metadata_file = self._handle_test_outputs(run_id)
+                output_file, metadata_file = self._handle_test_outputs(dataset_name, results_directory, run_id)
                 
                 self.logger.info(f"Testing completed in {result.execution_time:.2f}s")
                 return TestingResult(
@@ -341,26 +363,29 @@ class RENetAdapter:
                 error_message=str(e)
             )
     
-    def _handle_test_outputs(self, run_id: str) -> Tuple[Optional[str], Optional[str]]:
+    def _handle_test_outputs(self, dataset_name: str, results_directory: str, run_id: str) -> Tuple[Optional[str], Optional[str]]:
         """Handle test output files and move them to appropriate locations.
         
         Args:
+            dataset_name: Dataset name used by RE-Net
+            results_directory: Directory where outputs should be stored
             run_id: Unique identifier for this test run
             
         Returns:
             Tuple of (output_file_path, metadata_file_path)
         """
         try:
-            results_directory = self.config.get_results_directory(run_id)
             
             # Expected output file from RE-Net testing
-            expected_output = f"{self.config.experiment_name}_prediction_set_1.txt"
+            expected_output = f"{dataset_name}_prediction_set_1.txt"
             source_output_path = Path(self.config.renet_directory) / expected_output
             
             if source_output_path.exists():
                 # Move output file to results directory
-                final_output_file = f"{self.config.experiment_name}_prediction_set_{run_id}.txt"
-                destination_path = Path(results_directory) / final_output_file
+                destination_dir = Path(results_directory)
+                destination_dir.mkdir(parents=True, exist_ok=True)
+                final_output_file = f"{dataset_name}_prediction_set_{run_id}.txt"
+                destination_path = destination_dir / final_output_file
                 
                 move_result = self.file_manager.move_file(
                     source_path=source_output_path,
