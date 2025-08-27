@@ -2,7 +2,7 @@
 
 import subprocess
 import os
-import signal
+import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,34 +11,28 @@ from dataclasses import dataclass
 
 from .logging_utils import get_logger
 
-
 logger = get_logger(__name__)
 
 
 @dataclass
 class ProcessResult:
     """Result of a process execution."""
-    
+
     return_code: int
     stdout: str
     stderr: str
     execution_time: float
     command: str
-    
+
     @property
     def succeeded(self) -> bool:
         """Check if process completed successfully."""
         return self.return_code == 0
-    
-    @property
-    def failed(self) -> bool:
-        """Check if process failed."""
-        return self.return_code != 0
 
 
 class ProcessError(Exception):
     """Exception raised when a process fails."""
-    
+
     def __init__(self, result: ProcessResult):
         self.result = result
         super().__init__(
@@ -48,7 +42,7 @@ class ProcessError(Exception):
 
 class ProcessManager:
     """Manages subprocess execution with proper error handling and logging."""
-    
+
     def __init__(self, timeout: float = 3600.0):
         """Initialize process manager.
         
@@ -57,15 +51,15 @@ class ProcessManager:
         """
         self.timeout = timeout
         self.logger = get_logger(__name__)
-    
+
     def run_command(
-        self,
-        command: Union[str, List[str]],
-        working_directory: Optional[Union[str, Path]] = None,
-        environment: Optional[Dict[str, str]] = None,
-        timeout: Optional[float] = None,
-        check: bool = True,
-        capture_output: bool = True
+            self,
+            command: Union[str, List[str]],
+            working_directory: Optional[Union[str, Path]] = None,
+            environment: Optional[Dict[str, str]] = None,
+            timeout: Optional[float] = None,
+            check: bool = True,
+            capture_output: bool = True
     ) -> ProcessResult:
         """Execute a command with proper error handling and logging.
         
@@ -84,28 +78,25 @@ class ProcessManager:
             ProcessError: If process fails and check=True
             subprocess.TimeoutExpired: If process times out
         """
-        # Prepare command
         if isinstance(command, str):
             command_list = command.split()
             command_str = command
         else:
             command_list = command
             command_str = ' '.join(command)
-        
-        # Prepare environment
+
         env = os.environ.copy()
         if environment:
             env.update(environment)
-        
-        # Use provided timeout or default
+
         execution_timeout = timeout or self.timeout
-        
+
         self.logger.info(f"Executing command: {command_str}")
         if working_directory:
             self.logger.info(f"Working directory: {working_directory}")
-        
+
         start_time = time.time()
-        
+
         try:
             result = subprocess.run(
                 command_list,
@@ -114,11 +105,11 @@ class ProcessManager:
                 timeout=execution_timeout,
                 capture_output=capture_output,
                 text=True,
-                check=False  # We handle checking manually
+                check=False
             )
-            
+
             execution_time = time.time() - start_time
-            
+
             process_result = ProcessResult(
                 return_code=result.returncode,
                 stdout=result.stdout if capture_output else "",
@@ -126,7 +117,7 @@ class ProcessManager:
                 execution_time=execution_time,
                 command=command_str
             )
-            
+
             if process_result.succeeded:
                 self.logger.info(
                     f"Command completed successfully in {execution_time:.2f}s"
@@ -139,30 +130,29 @@ class ProcessManager:
                 )
                 if process_result.stderr:
                     self.logger.error(f"stderr: {process_result.stderr}")
-                
+
                 if check:
                     raise ProcessError(process_result)
-            
+
             return process_result
-            
+
         except subprocess.TimeoutExpired as e:
             execution_time = time.time() - start_time
             self.logger.error(f"Command timed out after {execution_time:.2f}s")
             raise
         except Exception as e:
-            execution_time = time.time() - start_time
             self.logger.error(f"Command execution failed: {e}")
             raise
-    
+
     def run_python_script(
-        self,
-        script_path: Union[str, Path],
-        args: List[str] = None,
-        working_directory: Optional[Union[str, Path]] = None,
-        environment: Optional[Dict[str, str]] = None,
-        timeout: Optional[float] = None,
-        check: bool = True,
-        capture_output: bool = True
+            self,
+            script_path: Union[str, Path],
+            args: List[str] = None,
+            working_directory: Optional[Union[str, Path]] = None,
+            environment: Optional[Dict[str, str]] = None,
+            timeout: Optional[float] = None,
+            check: bool = True,
+            capture_output: bool = True
     ) -> ProcessResult:
         """Execute a Python script with arguments.
         
@@ -178,12 +168,10 @@ class ProcessManager:
         Returns:
             ProcessResult containing execution details
         """
-        import sys
-        
         command = [sys.executable, str(script_path)]
         if args:
             command.extend(args)
-        
+
         return self.run_command(
             command=command,
             working_directory=working_directory,
@@ -192,51 +180,11 @@ class ProcessManager:
             check=check,
             capture_output=capture_output
         )
-    
-    @contextmanager
-    def temporary_working_directory(self, directory: Union[str, Path]):
-        """Context manager for temporarily changing working directory.
-        
-        Args:
-            directory: Directory to change to
-            
-        Yields:
-            Path object of the current directory
-        """
-        original_directory = os.getcwd()
-        try:
-            os.chdir(directory)
-            self.logger.debug(f"Changed working directory to: {directory}")
-            yield Path(directory)
-        finally:
-            os.chdir(original_directory)
-            self.logger.debug(f"Restored working directory to: {original_directory}")
-    
-    def kill_process_tree(self, pid: int) -> None:
-        """Kill a process and all its children.
-        
-        Args:
-            pid: Process ID to kill
-        """
-        try:
-            import os
-            import signal
-            
-            # Try to kill the process gracefully
-            os.kill(pid, signal.SIGTERM)
-            self.logger.info(f"Sent SIGTERM to process {pid}")
-            
-        except ProcessLookupError:
-            self.logger.warning(f"Process {pid} not found")
-        except PermissionError:
-            self.logger.error(f"Permission denied killing process {pid}")
-        except Exception as e:
-            self.logger.error(f"Error killing process {pid}: {e}")
 
 
 class RENetProcessManager(ProcessManager):
     """Specialized process manager for RE-Net operations."""
-    
+
     def __init__(self, renet_directory: Union[str, Path], timeout: float = 3600.0):
         """Initialize RE-Net process manager.
         
@@ -246,10 +194,10 @@ class RENetProcessManager(ProcessManager):
         """
         super().__init__(timeout)
         self.renet_directory = Path(renet_directory)
-        
+
         if not self.renet_directory.exists():
             raise FileNotFoundError(f"RE-Net directory not found: {renet_directory}")
-    
+
     def generate_history_graph(self, dataset_name: str) -> ProcessResult:
         """Generate history graph for a dataset.
         
@@ -261,22 +209,22 @@ class RENetProcessManager(ProcessManager):
         """
         data_directory = self.renet_directory / "data" / dataset_name
         script_path = "get_history_graph.py"  # Use relative path since we're setting working directory
-        
+
         return self.run_python_script(
             script_path=script_path,
             working_directory=data_directory
         )
-    
+
     def pretrain_model(
-        self,
-        dataset_name: str,
-        dropout: float,
-        n_hidden: int,
-        learning_rate: float,
-        max_epochs: int,
-        batch_size: int,
-        gpu_device: int = 0,
-        maxpool: int = 1
+            self,
+            dataset_name: str,
+            dropout: float,
+            n_hidden: int,
+            learning_rate: float,
+            max_epochs: int,
+            batch_size: int,
+            gpu_device: int = 0,
+            maxpool: int = 1
     ) -> ProcessResult:
         """Run RE-Net pretraining.
         
@@ -303,24 +251,24 @@ class RENetProcessManager(ProcessManager):
             "--batch-size", str(batch_size),
             "--maxpool", str(maxpool)
         ]
-        
+
         return self.run_python_script(
             script_path="pretrain.py",  # Use relative path since we're setting working directory
             args=args,
             working_directory=self.renet_directory,
             capture_output=False  # Allow real-time output for training progress
         )
-    
+
     def train_model(
-        self,
-        dataset_name: str,
-        dropout: float,
-        n_hidden: int,
-        learning_rate: float,
-        max_epochs: int,
-        batch_size: int,
-        gpu_device: int = 0,
-        num_k: int = 5
+            self,
+            dataset_name: str,
+            dropout: float,
+            n_hidden: int,
+            learning_rate: float,
+            max_epochs: int,
+            batch_size: int,
+            gpu_device: int = 0,
+            num_k: int = 5
     ) -> ProcessResult:
         """Run RE-Net training.
         
@@ -347,20 +295,20 @@ class RENetProcessManager(ProcessManager):
             "--batch-size", str(batch_size),
             "--num-k", str(num_k)
         ]
-        
+
         return self.run_python_script(
             script_path="train.py",  # Use relative path since we're setting working directory
             args=args,
             working_directory=self.renet_directory,
             capture_output=False  # Allow real-time output for training progress
         )
-    
+
     def test_model(
-        self,
-        dataset_name: str,
-        n_hidden: int,
-        gpu_device: int = 0,
-        num_k: int = 5
+            self,
+            dataset_name: str,
+            n_hidden: int,
+            gpu_device: int = 0,
+            num_k: int = 5
     ) -> ProcessResult:
         """Run RE-Net testing.
         
@@ -379,9 +327,9 @@ class RENetProcessManager(ProcessManager):
             "--n-hidden", str(n_hidden),
             "--num-k", str(num_k)
         ]
-        
+
         return self.run_python_script(
             script_path="test.py",  # Use relative path since we're setting working directory
             args=args,
             working_directory=self.renet_directory
-        ) 
+        )

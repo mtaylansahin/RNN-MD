@@ -16,8 +16,6 @@ class AnalysisConfig:
     output_file_path: str
     
     # Analysis parameters
-    num_pairs_to_show: int = 50
-    valid_steps_to_show: int = 20
     window_size: int = 10
     keep_latest_backups: int = 3
     
@@ -45,20 +43,10 @@ class AnalysisConfig:
         if not os.path.exists(self.input_directory):
             raise FileNotFoundError(f"Input directory does not exist: {self.input_directory}")
         
-        if not os.path.exists(self.output_file_path):
-            raise FileNotFoundError(f"Output file does not exist: {self.output_file_path}")
-        
-        # Create output directory if it doesn't exist
         Path(self.output_directory).mkdir(parents=True, exist_ok=True)
     
     def _validate_parameters(self) -> None:
         """Validate analysis parameters."""
-        if self.num_pairs_to_show <= 0:
-            raise ValueError("num_pairs_to_show must be positive")
-        
-        if self.valid_steps_to_show <= 0:
-            raise ValueError("valid_steps_to_show must be positive")
-        
         if self.window_size <= 0:
             raise ValueError("window_size must be positive")
         

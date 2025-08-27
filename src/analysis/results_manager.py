@@ -41,7 +41,7 @@ class ResultsManager:
         self.metrics_calculator = MetricsCalculator()
         
         # Initialize experiment logger
-        experiment_name = Path(config.input_directory).name
+        experiment_name = Path(config.output_directory).name or Path(config.input_directory).name
         self.experiment_logger = ExperimentLogger(f"analysis_{experiment_name}")
     
     def run_complete_analysis(self) -> bool:
@@ -57,9 +57,7 @@ class ResultsManager:
             config_dict = {
                 "input_directory": self.config.input_directory,
                 "output_directory": self.config.output_directory,
-                "output_file": self.config.output_file_path,
-                "num_pairs_to_show": self.config.num_pairs_to_show,
-                "valid_steps_to_show": self.config.valid_steps_to_show
+                "output_file": self.config.output_file_path
             }
             self.experiment_logger.log_experiment_start(config_dict)
             
@@ -484,8 +482,8 @@ class ResultsManager:
                 processed_data=processed_data,
                 metrics_report=metrics_report,
                 scores_file_path=scores_file_path,
-                num_pairs_to_show=self.config.num_pairs_to_show,
-                valid_steps_to_show=self.config.valid_steps_to_show,
+                num_pairs_to_show=50,
+                valid_steps_to_show=20,
                 num_representative_pairs=7
             )
             
@@ -533,19 +531,13 @@ def create_analysis_config_from_args() -> AnalysisConfig:
                        help='Directory to store the output files')
     parser.add_argument('--output_file_dir', type=str, required=True,
                        help='Path to the prediction output file')
-    parser.add_argument('--num_pairs_to_show', type=int, default=50,
-                       help='Number of pairs to show in visualizations')
-    parser.add_argument('--valid_steps_to_show', type=int, default=20,
-                       help='Number of validation steps to show')
     
     args = parser.parse_args()
     
     return AnalysisConfig(
         input_directory=args.input_dir,
         output_directory=args.output_dir,
-        output_file_path=args.output_file_dir,
-        num_pairs_to_show=args.num_pairs_to_show,
-        valid_steps_to_show=args.valid_steps_to_show
+        output_file_path=args.output_file_dir
     )
 
 

@@ -1,7 +1,6 @@
 """Logging utilities for structured logging throughout the application."""
 
 import logging
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -9,9 +8,9 @@ from typing import Optional
 
 
 def setup_logging(
-    log_level: str = "INFO",
-    log_file: Optional[str] = None,
-    experiment_name: Optional[str] = None
+        log_level: str = "INFO",
+        log_file: Optional[str] = None,
+        experiment_name: Optional[str] = None
 ) -> None:
     """Configure logging for the application.
     
@@ -22,34 +21,34 @@ def setup_logging(
     """
     # Convert string log level to logging constant
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
-    
+
     # Create formatter
     formatter = logging.Formatter(
         fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    
+
     # Remove existing handlers
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
-    
+
     # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(numeric_level)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
-    
+
     # File handler if log_file is specified
     if log_file:
         log_path = _create_log_file_path(log_file, experiment_name)
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-        
+
         file_handler = logging.FileHandler(log_path)
         file_handler.setLevel(numeric_level)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
-    
+
     # Set root logger level
     root_logger.setLevel(numeric_level)
 
@@ -69,10 +68,10 @@ def _create_log_file_path(log_file: str, experiment_name: Optional[str]) -> str:
         base_name = Path(log_file).stem
         extension = Path(log_file).suffix
         parent_dir = Path(log_file).parent
-        
+
         log_filename = f"{base_name}_{experiment_name}_{timestamp}{extension}"
         return str(parent_dir / log_filename)
-    
+
     return log_file
 
 
@@ -90,7 +89,7 @@ def get_logger(name: str) -> logging.Logger:
 
 class ExperimentLogger:
     """Enhanced logger for experiment tracking with structured information."""
-    
+
     def __init__(self, experiment_name: str, log_directory: str = "logs"):
         """Initialize experiment logger.
         
@@ -101,11 +100,12 @@ class ExperimentLogger:
         self.experiment_name = experiment_name
         self.log_directory = Path(log_directory)
         self.log_directory.mkdir(parents=True, exist_ok=True)
-        
+
         # Attach a file handler to a child logger without reconfiguring root
         self.logger = get_logger(f"experiment.{experiment_name}")
         log_file = self.log_directory / f"{self.experiment_name}.log"
-        if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == str(log_file) for h in self.logger.handlers):
+        if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == str(log_file) for h in
+                   self.logger.handlers):
             file_handler = logging.FileHandler(log_file)
             file_handler.setLevel(logging.INFO)
             file_handler.setFormatter(logging.Formatter(
@@ -113,11 +113,7 @@ class ExperimentLogger:
                 datefmt='%Y-%m-%d %H:%M:%S'
             ))
             self.logger.addHandler(file_handler)
-    
-    def _setup_experiment_logging(self) -> None:
-        """Deprecated: logging is configured at process start; ExperimentLogger only adds a file handler."""
-        pass
-    
+
     def log_experiment_start(self, config_dict: dict) -> None:
         """Log the start of an experiment with configuration.
         
@@ -128,7 +124,7 @@ class ExperimentLogger:
         self.logger.info("Experiment configuration:")
         for key, value in config_dict.items():
             self.logger.info(f"  {key}: {value}")
-    
+
     def log_phase_start(self, phase_name: str, phase_config: dict = None) -> None:
         """Log the start of an experiment phase.
         
@@ -140,7 +136,7 @@ class ExperimentLogger:
         if phase_config:
             for key, value in phase_config.items():
                 self.logger.info(f"  {key}: {value}")
-    
+
     def log_phase_completion(self, phase_name: str, results: dict = None) -> None:
         """Log the completion of an experiment phase.
         
@@ -152,18 +148,7 @@ class ExperimentLogger:
         if results:
             for key, value in results.items():
                 self.logger.info(f"  {key}: {value}")
-    
-    def log_hyperparameter_run(self, run_id: int, hyperparameters: dict) -> None:
-        """Log a hyperparameter configuration run.
-        
-        Args:
-            run_id: Unique identifier for this hyperparameter run
-            hyperparameters: Dictionary of hyperparameters for this run
-        """
-        self.logger.info(f"Starting hyperparameter run {run_id}")
-        for param, value in hyperparameters.items():
-            self.logger.info(f"  {param}: {value}")
-    
+
     def log_metrics(self, phase: str, metrics: dict, epoch: Optional[int] = None) -> None:
         """Log performance metrics.
         
@@ -176,7 +161,7 @@ class ExperimentLogger:
         self.logger.info(f"Metrics for {phase}{epoch_str}:")
         for metric_name, value in metrics.items():
             self.logger.info(f"  {metric_name}: {value}")
-    
+
     def log_error(self, error_message: str, exception: Optional[Exception] = None) -> None:
         """Log an error with optional exception details.
         
@@ -186,4 +171,4 @@ class ExperimentLogger:
         """
         self.logger.error(error_message)
         if exception:
-            self.logger.exception("Exception details:", exc_info=exception) 
+            self.logger.exception("Exception details:", exc_info=exception)

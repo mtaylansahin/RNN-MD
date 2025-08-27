@@ -10,7 +10,7 @@ import pandas as pd
 from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
 
-from core.utils import get_logger, FileManager
+from core.utils import get_logger
 
 
 logger = get_logger(__name__)
@@ -33,7 +33,6 @@ class DataLoader:
     def __init__(self):
         """Initialize data loader."""
         self.logger = get_logger(__name__)
-        self.file_manager = FileManager()
     
     def load_all_data(
         self,
