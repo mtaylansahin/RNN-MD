@@ -190,23 +190,23 @@ class MultiReplicaAnalyzer:
         
         # Create MetricStats objects
         overall_stats = OverallStats(
-            model_recall=MetricStats(values=model_metrics['model_recall'], mean=0, std=0, min=0, max=0),
-            model_precision=MetricStats(values=model_metrics['model_precision'], mean=0, std=0, min=0, max=0),
-            model_f1=MetricStats(values=model_metrics['model_f1'], mean=0, std=0, min=0, max=0),
-            model_mcc=MetricStats(values=model_metrics['model_mcc'], mean=0, std=0, min=0, max=0),
-            model_mean_pairwise_f1=MetricStats(values=model_metrics['model_mean_pairwise_f1'], mean=0, std=0, min=0, max=0),
+            model_recall=MetricStats(values=model_metrics['model_recall']),
+            model_precision=MetricStats(values=model_metrics['model_precision']),
+            model_f1=MetricStats(values=model_metrics['model_f1']),
+            model_mcc=MetricStats(values=model_metrics['model_mcc']),
+            model_mean_pairwise_f1=MetricStats(values=model_metrics['model_mean_pairwise_f1']),
             n_replicas=len(self.raw_metrics)
         )
         
         # Add baseline stats if available
         if baseline_metrics['baseline_recall']:
-            overall_stats.baseline_recall = MetricStats(values=baseline_metrics['baseline_recall'], mean=0, std=0, min=0, max=0)
-            overall_stats.baseline_precision = MetricStats(values=baseline_metrics['baseline_precision'], mean=0, std=0, min=0, max=0)
-            overall_stats.baseline_f1 = MetricStats(values=baseline_metrics['baseline_f1'], mean=0, std=0, min=0, max=0)
-            overall_stats.baseline_mcc = MetricStats(values=baseline_metrics['baseline_mcc'], mean=0, std=0, min=0, max=0)
+            overall_stats.baseline_recall = MetricStats(values=baseline_metrics['baseline_recall'])
+            overall_stats.baseline_precision = MetricStats(values=baseline_metrics['baseline_precision'])
+            overall_stats.baseline_f1 = MetricStats(values=baseline_metrics['baseline_f1'])
+            overall_stats.baseline_mcc = MetricStats(values=baseline_metrics['baseline_mcc'])
         
         if baseline_metrics['baseline_mean_pairwise_f1']:
-            overall_stats.baseline_mean_pairwise_f1 = MetricStats(values=baseline_metrics['baseline_mean_pairwise_f1'], mean=0, std=0, min=0, max=0)
+            overall_stats.baseline_mean_pairwise_f1 = MetricStats(values=baseline_metrics['baseline_mean_pairwise_f1'])
         
         return overall_stats
     
@@ -240,25 +240,70 @@ class MultiReplicaAnalyzer:
         # Create StabilityGroupStats objects
         aggregated_stability = {}
         
-        for group_name, group_metrics in stability_data.items():
-            group_stats = StabilityGroupStats(
-                recall=MetricStats(values=group_metrics['recall'], mean=0, std=0, min=0, max=0),
-                precision=MetricStats(values=group_metrics['precision'], mean=0, std=0, min=0, max=0),
-                f1=MetricStats(values=group_metrics['f1'], mean=0, std=0, min=0, max=0),
-                mcc=MetricStats(values=group_metrics['mcc'], mean=0, std=0, min=0, max=0),
-                tpr=MetricStats(values=group_metrics['tpr'], mean=0, std=0, min=0, max=0),
-                fpr=MetricStats(values=group_metrics['fpr'], mean=0, std=0, min=0, max=0),
-                mean_pairwise_f1=MetricStats(values=group_metrics['mean_pairwise_f1'], mean=0, std=0, min=0, max=0),
-                pair_count=MetricStats(values=group_metrics['pair_count'], mean=0, std=0, min=0, max=0),
-                group_name=group_name,
-                n_replicas=len(group_metrics['recall'])
-            )
-            
-            # Add baseline if available
-            if group_metrics['baseline_mean_pairwise_f1']:
-                group_stats.baseline_mean_pairwise_f1 = MetricStats(values=group_metrics['baseline_mean_pairwise_f1'], mean=0, std=0, min=0, max=0)
+        # Always ensure the three main required categories are present
+        required_categories = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
+        
+        for group_name in required_categories:
+            if group_name in stability_data and stability_data[group_name]['recall']:
+                # Group has data - create stats from actual values
+                group_metrics = stability_data[group_name]
+                group_stats = StabilityGroupStats(
+                    recall=MetricStats(values=group_metrics['recall']),
+                    precision=MetricStats(values=group_metrics['precision']),
+                    f1=MetricStats(values=group_metrics['f1']),
+                    mcc=MetricStats(values=group_metrics['mcc']),
+                    tpr=MetricStats(values=group_metrics['tpr']),
+                    fpr=MetricStats(values=group_metrics['fpr']),
+                    mean_pairwise_f1=MetricStats(values=group_metrics['mean_pairwise_f1']),
+                    pair_count=MetricStats(values=group_metrics['pair_count']),
+                    group_name=group_name,
+                    n_replicas=len(group_metrics['recall'])
+                )
+                
+                # Add baseline if available
+                if group_metrics['baseline_mean_pairwise_f1']:
+                    group_stats.baseline_mean_pairwise_f1 = MetricStats(values=group_metrics['baseline_mean_pairwise_f1'])
+            else:
+                # Group has no data - create zero-filled stats
+                n_replicas = len(self.raw_metrics)
+                zero_values = [0.0] * n_replicas
+                
+                group_stats = StabilityGroupStats(
+                    recall=MetricStats(values=zero_values),
+                    precision=MetricStats(values=zero_values),
+                    f1=MetricStats(values=zero_values),
+                    mcc=MetricStats(values=zero_values),
+                    tpr=MetricStats(values=zero_values),
+                    fpr=MetricStats(values=zero_values),
+                    mean_pairwise_f1=MetricStats(values=zero_values),
+                    pair_count=MetricStats(values=zero_values),
+                    group_name=group_name,
+                    n_replicas=n_replicas
+                )
             
             aggregated_stability[group_name] = group_stats
+        
+        # Also add any other groups that might exist (like 'Undefined') but aren't in required categories
+        for group_name, group_metrics in stability_data.items():
+            if group_name not in required_categories and group_metrics['recall']:
+                group_stats = StabilityGroupStats(
+                    recall=MetricStats(values=group_metrics['recall']),
+                    precision=MetricStats(values=group_metrics['precision']),
+                    f1=MetricStats(values=group_metrics['f1']),
+                    mcc=MetricStats(values=group_metrics['mcc']),
+                    tpr=MetricStats(values=group_metrics['tpr']),
+                    fpr=MetricStats(values=group_metrics['fpr']),
+                    mean_pairwise_f1=MetricStats(values=group_metrics['mean_pairwise_f1']),
+                    pair_count=MetricStats(values=group_metrics['pair_count']),
+                    group_name=group_name,
+                    n_replicas=len(group_metrics['recall'])
+                )
+                
+                # Add baseline if available
+                if group_metrics['baseline_mean_pairwise_f1']:
+                    group_stats.baseline_mean_pairwise_f1 = MetricStats(values=group_metrics['baseline_mean_pairwise_f1'])
+                
+                aggregated_stability[group_name] = group_stats
         
         return aggregated_stability
     

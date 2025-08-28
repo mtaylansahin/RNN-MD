@@ -15,10 +15,10 @@ import numpy as np
 class MetricStats:
     """Statistics for a single metric across replicas."""
     
-    mean: float
-    std: float
-    min: float
-    max: float
+    mean: float = 0.0
+    std: float = 0.0
+    min: float = 0.0
+    max: float = 0.0
     values: List[float] = field(default_factory=list)
     n_replicas: int = 0
     
@@ -126,7 +126,7 @@ class AggregatedMetrics:
         groups = self.get_stability_groups(frequency_type)
         
         # Standard order for stability groups
-        preferred_order = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)', 'Undefined']
+        preferred_order = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)', 'Undefined']
         
         # Return groups in preferred order if they exist
         ordered_groups = []

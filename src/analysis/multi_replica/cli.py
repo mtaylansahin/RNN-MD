@@ -2,18 +2,26 @@
 """Command-line interface for multi-replica analysis."""
 
 import sys
+import os
 from pathlib import Path
 
-# Add src to path for absolute imports
-sys.path.insert(0, str(Path(__file__).parents[2]))
+# Add both src and project root to path for imports
+current_dir = Path(__file__).resolve()
+src_dir = current_dir.parents[2]  # Go up to src/
+project_root = src_dir.parent     # Go up to project root
+
+# Add paths to sys.path if not already there
+for path_to_add in [str(src_dir), str(project_root)]:
+    if path_to_add not in sys.path:
+        sys.path.insert(0, path_to_add)
 
 import argparse
 import json
 from typing import List
 
 from core.utils import setup_logging, get_logger
-from .analyzer import MultiReplicaAnalyzer
-from .plotter import MultiReplicaPlotter
+from analysis.multi_replica.analyzer import MultiReplicaAnalyzer
+from analysis.multi_replica.plotter import MultiReplicaPlotter
 
 
 def main():
@@ -172,7 +180,7 @@ def print_metrics_summary(aggregated_metrics):
     training_stats = aggregated_metrics.training_frequency_stats
     if training_stats:
         print("\n📈 Stability Performance (Training Freq.):")
-        for group_name in ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']:
+        for group_name in ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']:
             if group_name in training_stats:
                 stats = training_stats[group_name]
                 clean_name = group_name.replace('Moderate', 'Uncommon')

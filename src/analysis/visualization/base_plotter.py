@@ -125,8 +125,8 @@ class BasePlotter(ABC):
             },
             "stability": {
                 "Rare (<5%)": "#E74C3C",
-                "Moderate (5-50%)": "#F39C12", 
-                "Stable (>50%)": "#27AE60"
+                "Moderate (5-90%)": "#F39C12", 
+                "Stable (>90%)": "#27AE60"
             }
         }
         

@@ -123,8 +123,8 @@ class MetricsPlotter(BasePlotter):
             for bin_label, stability_detail in metrics_mapping.items():
                 pair_count = stability_detail.pair_count
                 output_label = bin_label
-                if bin_label == "Moderate (5-50%)":
-                    output_label = "Uncommon (5-50%)"
+                if bin_label == "Moderate (5-90%)":
+                    output_label = "Uncommon (5-90%)"
                 if bin_label == "Undefined":
                     output_label = undefined_label_replacement
                 print(f"\nMetrics for {output_label} interactions ({pair_count} pairs):", file=scores_output_file)
@@ -155,15 +155,18 @@ class MetricsPlotter(BasePlotter):
 
         metrics_df_plot = metrics_df_plot[columns_to_plot]
 
-        # Desired plot order
-        plot_order_preference = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
-        actual_plot_order = [label for label in plot_order_preference if label in metrics_df_plot.index]
-        if not actual_plot_order:
-            if metrics_df_plot.empty:
-                self.logger.warning("No data to plot for metrics by stability after filtering.")
-                return ""
-            actual_plot_order = metrics_df_plot.index.tolist()
-        metrics_df_plot = metrics_df_plot.reindex(actual_plot_order)
+        # Always include the three main stability categories, even if they have no data
+        required_categories = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
+        
+        # Create zero-filled rows for missing categories
+        for category in required_categories:
+            if category not in metrics_df_plot.index:
+                # Create a row of zeros for missing category
+                zero_row = pd.Series({col: 0.0 for col in columns_to_plot}, name=category)
+                metrics_df_plot = pd.concat([metrics_df_plot, zero_row.to_frame().T])
+        
+        # Reindex to ensure consistent order across all plots
+        metrics_df_plot = metrics_df_plot.reindex(required_categories)
 
         # Render bar chart
         if metrics_df_plot.empty:
@@ -192,15 +195,23 @@ class MetricsPlotter(BasePlotter):
             linewidth=0.7
         )
 
-        # Value labels
+        # Value labels (only for non-zero bars)
         for container in ax.containers:
-            ax.bar_label(container, fmt='%.3f', label_type='edge', padding=3, fontsize=9, fontweight='bold')
+            # Get the values for this container
+            labels = []
+            for bar in container:
+                height = bar.get_height()
+                if height > 0:
+                    labels.append(f'{height:.3f}')
+                else:
+                    labels.append('')  # Empty label for zero bars
+            ax.bar_label(container, labels=labels, label_type='edge', padding=3, fontsize=9, fontweight='bold')
 
         # X labels with counts
         x_labels_with_counts = []
-        for bin_label_for_plot in actual_plot_order:
+        for bin_label_for_plot in required_categories:
             count = metrics_df_from_report.loc[bin_label_for_plot, 'Pair Count'] if bin_label_for_plot in metrics_df_from_report.index else 0
-            display_label = "Uncommon (5-50%)" if bin_label_for_plot == "Moderate (5-50%)" else bin_label_for_plot
+            display_label = "Uncommon (5-90%)" if bin_label_for_plot == "Moderate (5-90%)" else bin_label_for_plot
             x_labels_with_counts.append(f'{display_label}\n(N={int(count)})')
         ax.set_xticklabels(x_labels_with_counts, rotation=0, ha='center')
 

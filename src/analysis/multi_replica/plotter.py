@@ -193,15 +193,11 @@ class MultiReplicaPlotter:
                 self.logger.warning(f"No stability metrics found for {frequency_type} frequency")
                 return None
             
-            # Get groups in standard order
-            group_names = aggregated_metrics.get_group_names(frequency_type)
+            # Always include the three main stability categories
+            required_categories = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
             
-            # Filter to only existing groups  
-            existing_groups = [name for name in group_names if name in stability_stats]
-            
-            if not existing_groups:
-                self.logger.warning(f"No existing stability groups found for {frequency_type}")
-                return None
+            # Use only the required categories to ensure consistency
+            existing_groups = required_categories
             
             # Metrics to plot
             metric_names = ['recall', 'precision', 'f1', 'mcc', 'mean_pairwise_f1']
@@ -222,11 +218,17 @@ class MultiReplicaPlotter:
                 pair_counts = []
                 
                 for group_name in existing_groups:
-                    group_stats = stability_stats[group_name]
-                    metric_stats: MetricStats = getattr(group_stats, metric)
-                    means.append(metric_stats.mean)
-                    stds.append(metric_stats.std)
-                    pair_counts.append(int(group_stats.pair_count.mean))
+                    if group_name in stability_stats:
+                        group_stats = stability_stats[group_name]
+                        metric_stats: MetricStats = getattr(group_stats, metric)
+                        means.append(metric_stats.mean)
+                        stds.append(metric_stats.std)
+                        pair_counts.append(int(group_stats.pair_count.mean))
+                    else:
+                        # Group doesn't exist, use zero values
+                        means.append(0.0)
+                        stds.append(0.0)
+                        pair_counts.append(0)
                 
                 # Create bars with error bars
                 x_offset = x_pos + (i - n_metrics/2) * bar_width
@@ -234,13 +236,15 @@ class MultiReplicaPlotter:
                              label=label, color=self.colors.get(metric, f'C{i}'), 
                              alpha=0.8, edgecolor='white', linewidth=0.5)
                 
-                # Add value labels (only for F1 to avoid clutter)
-                if metric == 'f1':
-                    for j, (bar, mean, std) in enumerate(zip(bars, means, stds)):
+                # Add value labels to all bars
+                for j, (bar, mean, std) in enumerate(zip(bars, means, stds)):
+                    if mean > 0:  # Only show labels for non-zero values
                         height = bar.get_height()
+                        # Adjust font size based on bar height and metric type
+                        fontsize = 7 if metric in ['recall', 'precision', 'mcc', 'mean_pairwise_f1'] else 8
                         ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.01,
                                f'{mean:.3f}', ha='center', va='bottom', 
-                               fontsize=8, fontweight='bold')
+                               fontsize=fontsize, fontweight='bold', alpha=0.9)
             
             # Styling
             ax.set_xlabel('Stability Groups', fontsize=14, fontweight='bold')
@@ -254,13 +258,27 @@ class MultiReplicaPlotter:
             # X-axis labels with pair counts
             group_labels_with_counts = []
             for group_name in existing_groups:
-                group_stats = stability_stats[group_name] 
-                pair_count = int(group_stats.pair_count.mean)
-                pair_count_std = int(group_stats.pair_count.std)
-                if pair_count_std > 0:
-                    count_str = f'(N={pair_count}±{pair_count_std})'
+                if group_name in stability_stats:
+                    group_stats = stability_stats[group_name] 
+                    pair_count_mean = group_stats.pair_count.mean
+                    pair_count_std = group_stats.pair_count.std
+                    
+                    # Round mean to integer, but be more careful with std
+                    pair_count = int(round(pair_count_mean))
+                    
+                    # Show std if it's meaningful (> 0.5) or if there are multiple replicas
+                    if pair_count_std >= 0.5 or aggregated_metrics.n_replicas > 1:
+                        # Round std but ensure it shows at least 1 if there's any variation
+                        std_rounded = max(1, int(round(pair_count_std))) if pair_count_std > 0 else 0
+                        if std_rounded > 0:
+                            count_str = f'(N={pair_count}±{std_rounded})'
+                        else:
+                            count_str = f'(N={pair_count})'
+                    else:
+                        count_str = f'(N={pair_count})'
                 else:
-                    count_str = f'(N={pair_count})'
+                    # Group doesn't exist, show zero count
+                    count_str = '(N=0)'
                 
                 # Clean up group name
                 clean_name = group_name.replace('Moderate', 'Uncommon')
@@ -318,14 +336,9 @@ class MultiReplicaPlotter:
                 self.logger.warning("Missing training or test stability stats for comparison")
                 return None
             
-            # Find common groups
-            common_groups = set(training_stats.keys()).intersection(set(test_stats.keys()))
-            common_groups = [g for g in ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)', 'Undefined'] 
-                           if g in common_groups]
-            
-            if not common_groups:
-                self.logger.warning("No common stability groups found for comparison")
-                return None
+            # Always use the three main required categories for consistency
+            required_categories = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
+            common_groups = required_categories
             
             # Create subplot for F1 scores comparison
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8), dpi=self.dpi)
@@ -334,10 +347,10 @@ class MultiReplicaPlotter:
             x_pos = np.arange(len(common_groups))
             bar_width = 0.35
             
-            training_f1_means = [training_stats[g].f1.mean for g in common_groups]
-            training_f1_stds = [training_stats[g].f1.std for g in common_groups]
-            test_f1_means = [test_stats[g].f1.mean for g in common_groups]
-            test_f1_stds = [test_stats[g].f1.std for g in common_groups]
+            training_f1_means = [training_stats[g].f1.mean if g in training_stats else 0.0 for g in common_groups]
+            training_f1_stds = [training_stats[g].f1.std if g in training_stats else 0.0 for g in common_groups]
+            test_f1_means = [test_stats[g].f1.mean if g in test_stats else 0.0 for g in common_groups]
+            test_f1_stds = [test_stats[g].f1.std if g in test_stats else 0.0 for g in common_groups]
             
             bars1 = ax1.bar(x_pos - bar_width/2, training_f1_means, bar_width, 
                            yerr=training_f1_stds, capsize=5, label='Training Frequency',
@@ -350,10 +363,11 @@ class MultiReplicaPlotter:
             # Add value labels
             for bars, means in [(bars1, training_f1_means), (bars2, test_f1_means)]:
                 for bar, mean in zip(bars, means):
-                    height = bar.get_height()
-                    ax1.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                           f'{mean:.3f}', ha='center', va='bottom', 
-                           fontsize=9, fontweight='bold')
+                    if mean > 0:  # Only show labels for non-zero values
+                        height = bar.get_height()
+                        ax1.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                               f'{mean:.3f}', ha='center', va='bottom', 
+                               fontsize=9, fontweight='bold')
             
             ax1.set_xlabel('Stability Groups', fontsize=12, fontweight='bold')
             ax1.set_ylabel('F1 Score', fontsize=12, fontweight='bold') 
@@ -365,10 +379,10 @@ class MultiReplicaPlotter:
             ax1.set_ylim(0, 1.0)
             
             # Plot 2: Pair Count comparison  
-            training_counts = [training_stats[g].pair_count.mean for g in common_groups]
-            training_count_stds = [training_stats[g].pair_count.std for g in common_groups]
-            test_counts = [test_stats[g].pair_count.mean for g in common_groups]
-            test_count_stds = [test_stats[g].pair_count.std for g in common_groups]
+            training_counts = [training_stats[g].pair_count.mean if g in training_stats else 0.0 for g in common_groups]
+            training_count_stds = [training_stats[g].pair_count.std if g in training_stats else 0.0 for g in common_groups]
+            test_counts = [test_stats[g].pair_count.mean if g in test_stats else 0.0 for g in common_groups]
+            test_count_stds = [test_stats[g].pair_count.std if g in test_stats else 0.0 for g in common_groups]
             
             bars3 = ax2.bar(x_pos - bar_width/2, training_counts, bar_width,
                            yerr=training_count_stds, capsize=5, label='Training Frequency',
@@ -442,13 +456,9 @@ class MultiReplicaPlotter:
             training_stats = aggregated_metrics.training_frequency_stats
             test_stats = aggregated_metrics.test_frequency_stats
             
-            # Find common groups
-            common_groups = set(training_stats.keys()).intersection(set(test_stats.keys()))
-            common_groups = [g for g in ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)', 'Undefined']
-                           if g in common_groups]
-            
-            if not common_groups:
-                return None
+            # Always use the three main required categories for consistency
+            required_categories = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
+            common_groups = required_categories
             
             x_pos = np.arange(len(common_groups))
             bar_width = 0.35
@@ -460,13 +470,21 @@ class MultiReplicaPlotter:
             test_stds = []
             
             for group in common_groups:
-                training_metric_stats = getattr(training_stats[group], metric_name)
-                test_metric_stats = getattr(test_stats[group], metric_name)
+                if group in training_stats:
+                    training_metric_stats = getattr(training_stats[group], metric_name)
+                    training_means.append(training_metric_stats.mean)
+                    training_stds.append(training_metric_stats.std)
+                else:
+                    training_means.append(0.0)
+                    training_stds.append(0.0)
                 
-                training_means.append(training_metric_stats.mean)
-                training_stds.append(training_metric_stats.std)
-                test_means.append(test_metric_stats.mean)
-                test_stds.append(test_metric_stats.std)
+                if group in test_stats:
+                    test_metric_stats = getattr(test_stats[group], metric_name)
+                    test_means.append(test_metric_stats.mean)
+                    test_stds.append(test_metric_stats.std)
+                else:
+                    test_means.append(0.0)
+                    test_stds.append(0.0)
             
             # Create bars
             bars1 = ax.bar(x_pos - bar_width/2, training_means, bar_width,
@@ -476,6 +494,15 @@ class MultiReplicaPlotter:
             bars2 = ax.bar(x_pos + bar_width/2, test_means, bar_width,
                           yerr=test_stds, capsize=5, label='Test Frequency',
                           color='#FF6B6B', alpha=0.7)
+            
+            # Add value labels
+            for bars, means in [(bars1, training_means), (bars2, test_means)]:
+                for bar, mean in zip(bars, means):
+                    if mean > 0:  # Only show labels for non-zero values
+                        height = bar.get_height()
+                        ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                               f'{mean:.3f}', ha='center', va='bottom', 
+                               fontsize=9, fontweight='bold')
             
             # Styling
             ax.set_xlabel('Stability Groups', fontsize=14, fontweight='bold')
