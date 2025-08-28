@@ -243,7 +243,7 @@ class MultiReplicaAnalyzer:
         aggregated_stability = {}
         
         # Always ensure the three main required categories are present
-        required_categories = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
+        required_categories = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
         
         for group_name in required_categories:
             if group_name in stability_data and stability_data[group_name]['recall']:

@@ -127,7 +127,7 @@ class AggregatedMetrics:
         groups = self.get_stability_groups(frequency_type)
         
         # Standard order for stability groups
-        preferred_order = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)', 'Undefined']
+        preferred_order = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)', 'Undefined']
         
         # Return groups in preferred order if they exist
         ordered_groups = []

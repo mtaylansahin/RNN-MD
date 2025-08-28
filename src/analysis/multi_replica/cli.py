@@ -180,7 +180,7 @@ def print_metrics_summary(aggregated_metrics):
     training_stats = aggregated_metrics.training_frequency_stats
     if training_stats:
         print("\n📈 Stability Performance (Training Freq.):")
-        for group_name in ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']:
+        for group_name in ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']:
             if group_name in training_stats:
                 stats = training_stats[group_name]
                 clean_name = group_name.replace('Moderate', 'Uncommon')

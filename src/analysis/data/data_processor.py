@@ -346,8 +346,8 @@ class DataProcessor:
             pair_freq = pair_counts / total_train_timestamps
             
             # Define stability bins
-            bins = [-0.01, 0.05, 0.9, 1.01]
-            labels = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
+            bins = [-0.01, 0.05, 0.5, 1.01]
+            labels = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
             
             stability_bins = pd.cut(pair_freq, bins=bins, labels=labels, right=False)
             
@@ -388,8 +388,8 @@ class DataProcessor:
             pair_freq_test = pair_counts_test / total_test_timestamps
             
             # Use the same bin edges and labels as training-based stability
-            bins = [-0.01, 0.05, 0.9, 1.01]
-            labels = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
+            bins = [-0.01, 0.05, 0.5, 1.01]
+            labels = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
             
             stability_bins_test = pd.cut(pair_freq_test, bins=bins, labels=labels, right=False)
             

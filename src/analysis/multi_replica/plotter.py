@@ -195,7 +195,7 @@ class MultiReplicaPlotter:
                 return None
             
             # Always include the three main stability categories
-            required_categories = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
+            required_categories = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
             
             # Use only the required categories to ensure consistency
             existing_groups = required_categories
@@ -358,7 +358,7 @@ class MultiReplicaPlotter:
                 return None
             
             # Always use the three main required categories for consistency
-            required_categories = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
+            required_categories = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
             common_groups = required_categories
             
             # Create subplot for F1 scores comparison
@@ -478,7 +478,7 @@ class MultiReplicaPlotter:
             test_stats = aggregated_metrics.test_frequency_stats
             
             # Always use the three main required categories for consistency
-            required_categories = ['Rare (<5%)', 'Moderate (5-90%)', 'Stable (>90%)']
+            required_categories = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
             common_groups = required_categories
             
             x_pos = np.arange(len(common_groups))
