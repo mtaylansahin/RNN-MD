@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parents[2]))
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from collections import defaultdict
 
@@ -835,6 +835,105 @@ class MetricsCalculator:
             
         except Exception as e:
             self.logger.error(f"Failed to write metrics report: {e}")
+
+    def write_structured_metrics(
+        self,
+        report: MetricsReport,
+        output_file_path: str,
+        experiment_metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Write structured metrics to JSON file for easy parsing.
+        
+        Args:
+            report: MetricsReport to write
+            output_file_path: Path to write the structured JSON file
+            experiment_metadata: Optional metadata about the experiment
+        """
+        import json
+        from datetime import datetime
+        
+        try:
+            self.logger.info(f"Writing structured metrics to {output_file_path}")
+            
+            # Helper function to convert PerformanceMetrics to dict
+            def metrics_to_dict(metrics: PerformanceMetrics) -> Dict[str, Any]:
+                return {
+                    "recall": float(metrics.Recall),
+                    "precision": float(metrics.Precision),
+                    "f1": float(metrics.F1),
+                    "mcc": float(metrics.MCC),
+                    "tpr": float(metrics.TPR),
+                    "fpr": float(metrics.FPR),
+                    "tp": int(metrics.TP),
+                    "fp": int(metrics.FP),
+                    "fn": int(metrics.FN),
+                    "tn": int(metrics.TN)
+                }
+            
+            # Helper function to convert StabilityBinDetail to dict
+            def stability_detail_to_dict(detail: StabilityBinDetail) -> Dict[str, Any]:
+                result = metrics_to_dict(detail)
+                result.update({
+                    "pair_count": int(detail.pair_count),
+                    "mean_pairwise_f1": float(detail.mean_pairwise_f1),
+                    "baseline_mean_pairwise_f1": float(detail.baseline_mean_pairwise_f1) if detail.baseline_mean_pairwise_f1 is not None else None
+                })
+                return result
+            
+            # Build structured data
+            structured_data = {
+                "metadata": {
+                    "timestamp": datetime.now().isoformat(),
+                    "format_version": "1.0",
+                    **(experiment_metadata or {})
+                },
+                "overall_metrics": {
+                    "model": metrics_to_dict(report.model_metrics),
+                    "baseline": metrics_to_dict(report.baseline_metrics) if report.baseline_metrics else None,
+                    "mean_pairwise_f1": {
+                        "model": float(report.mean_pairwise_f1),
+                        "baseline": float(report.baseline_mean_pairwise_f1) if report.baseline_mean_pairwise_f1 is not None else None
+                    }
+                },
+                "stability_metrics": {
+                    "training_frequency": {
+                        bin_label: stability_detail_to_dict(detail)
+                        for bin_label, detail in report.metrics_by_stability.items()
+                    } if report.metrics_by_stability else {},
+                    "test_frequency": {
+                        bin_label: stability_detail_to_dict(detail)
+                        for bin_label, detail in report.metrics_by_test_stability.items()
+                    } if report.metrics_by_test_stability else {}
+                }
+            }
+            
+            # Add time series data if available
+            if hasattr(report, 'metrics_over_time') and not report.metrics_over_time.empty:
+                # Convert DataFrame to list of dicts for JSON serialization
+                time_series_data = []
+                for _, row in report.metrics_over_time.iterrows():
+                    time_point = {}
+                    for col in report.metrics_over_time.columns:
+                        value = row[col]
+                        # Handle different data types
+                        if pd.isna(value):
+                            time_point[col.lower()] = None
+                        elif isinstance(value, (int, float)):
+                            time_point[col.lower()] = float(value)
+                        else:
+                            time_point[col.lower()] = str(value)
+                    time_series_data.append(time_point)
+                
+                structured_data["time_series_metrics"] = time_series_data
+            
+            # Write JSON file with proper formatting
+            with open(output_file_path, 'w') as f:
+                json.dump(structured_data, f, indent=2, ensure_ascii=False)
+            
+            self.logger.info(f"Structured metrics written to {output_file_path}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to write structured metrics: {e}")
     
     def _write_metrics_to_file(
         self,

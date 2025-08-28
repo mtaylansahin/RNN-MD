@@ -273,6 +273,17 @@ class ResultsManager:
             metrics_file_path = os.path.join(self.config.output_directory, "PerformanceMetrics.txt")
             self.metrics_calculator.write_metrics_report(metrics_report, metrics_file_path)
             
+            # Generate structured metrics JSON file for multi-replica analysis
+            structured_metrics_path = os.path.join(self.config.output_directory, "metrics_structured.json")
+            experiment_metadata = {
+                "input_directory": self.config.input_directory,
+                "output_file": self.config.output_file_path,
+                "analysis_directory": self.config.output_directory
+            }
+            self.metrics_calculator.write_structured_metrics(
+                metrics_report, structured_metrics_path, experiment_metadata
+            )
+            
             # Generate ground truth CSV/JSON
             ground_truth_records = self._generate_ground_truth_csv(processed_data)
             gt_csv_path = os.path.join(self.config.output_directory, "ground_truth.csv")
@@ -299,6 +310,7 @@ class ResultsManager:
             
             outputs_generated = [
                 "PerformanceMetrics.txt",
+                "metrics_structured.json",
                 "ground_truth.csv",
                 "prediction.csv",
                 "heatmap_similarity_score.txt"
