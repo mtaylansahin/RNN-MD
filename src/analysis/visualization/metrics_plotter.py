@@ -112,7 +112,7 @@ class MetricsPlotter(BasePlotter):
                 'F1': stability_detail.F1,
                 'MCC': stability_detail.MCC,
                 'Mean Pairwise F1': stability_detail.mean_pairwise_f1,
-                'Baseline Mean Pairwise F1': stability_detail.baseline_mean_pairwise_f1 if getattr(stability_detail, 'baseline_mean_pairwise_f1', None) is not None else None,
+                'Baseline F1': stability_detail.baseline_f1 if getattr(stability_detail, 'baseline_f1', None) is not None else None,
                 'Pair Count': stability_detail.pair_count
             })
         metrics_df_from_report = pd.DataFrame(plot_rows).set_index('Bin Label')
@@ -138,9 +138,9 @@ class MetricsPlotter(BasePlotter):
                         f"Mean Pairwise F1: {stability_detail.mean_pairwise_f1:.4f}",
                         file=scores_output_file
                     )
-                    if getattr(stability_detail, 'baseline_mean_pairwise_f1', None) is not None:
+                    if getattr(stability_detail, 'baseline_f1', None) is not None:
                         print(
-                            f"Baseline Mean Pairwise F1: {stability_detail.baseline_mean_pairwise_f1:.4f}",
+                            f"Baseline F1: {stability_detail.baseline_f1:.4f}",
                             file=scores_output_file
                         )
 
@@ -149,9 +149,9 @@ class MetricsPlotter(BasePlotter):
 
         # Select columns to plot, add baseline if present
         columns_to_plot = ['Recall', 'Precision', 'F1', 'MCC', 'Mean Pairwise F1']
-        if 'Baseline Mean Pairwise F1' in metrics_df_plot.columns:
-            if metrics_df_plot['Baseline Mean Pairwise F1'].notna().any():
-                columns_to_plot.append('Baseline Mean Pairwise F1')
+        if 'Baseline F1' in metrics_df_plot.columns:
+            if metrics_df_plot['Baseline F1'].notna().any():
+                columns_to_plot.append('Baseline F1')
 
         metrics_df_plot = metrics_df_plot[columns_to_plot]
 
@@ -179,7 +179,7 @@ class MetricsPlotter(BasePlotter):
             'F1': '#F18F01',
             'MCC': '#C73E1D',
             'Mean Pairwise F1': '#36213E',
-            'Baseline Mean Pairwise F1': '#7A9E7E'
+            'Baseline F1': '#7A9E7E'
         }
 
         fig, ax = plt.subplots(figsize=(12, 8))

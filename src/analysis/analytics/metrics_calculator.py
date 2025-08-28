@@ -40,6 +40,7 @@ class StabilityBinDetail(PerformanceMetrics):
     """Container for performance metrics for a stability bin, including pair count."""
     pair_count: int
     mean_pairwise_f1: float
+    baseline_f1: Optional[float] = None
     baseline_mean_pairwise_f1: Optional[float] = None
 
 
@@ -253,6 +254,11 @@ class MetricsCalculator:
         if processed_data.stability_bins is None:
             self.logger.warning("No stability bins available, skipping stability analysis")
             return metrics_by_bin
+            
+        # Prepare baseline evaluation series
+        baseline_eval = None
+        if not processed_data.baseline_full.empty:
+            baseline_eval = processed_data.baseline_full.set_index(['pair', 'time_stamp'])['present']
         
         # Get evaluation pairs from ground truth AND model predictions (to include FP-only pairs)
         eval_pairs_union = gt_eval.index.get_level_values(0).unique().union(
@@ -298,6 +304,7 @@ class MetricsCalculator:
                  # If no interactions possible and no data, create zero metrics
                  perf_metrics_obj = PerformanceMetrics(TP=0,FP=0,FN=0,TN=0,Recall=0,Precision=0,TPR=0,FPR=0,F1=0,MCC=0)
                  bin_mean_pairwise_f1 = 0.0
+                 baseline_bin_f1 = 0.0
                  baseline_bin_mean_pairwise_f1 = 0.0
             elif current_bin_complete_index.empty and not (gt_bin_filtered.empty and pred_bin_filtered.empty):
                  self.logger.warning(f"Bin {bin_label} has data but complete index is empty. Skipping.")
@@ -312,7 +319,8 @@ class MetricsCalculator:
                     processed_data, pairs_in_bin, "model"
                 )
                 
-                # Calculate baseline Mean Pairwise F1 for this stability bin if baseline data exists
+                # Calculate baseline metrics for this stability bin if baseline data exists
+                baseline_bin_f1 = None
                 baseline_bin_mean_pairwise_f1 = None
                 if not processed_data.baseline_full.empty:
                     # BASELINE: define its own pairs_in_bin set
@@ -331,6 +339,20 @@ class MetricsCalculator:
                         else:
                             baseline_pairs_in_bin = pd.Index(train_pairs_in_bin)
 
+                    # Calculate baseline F1 for this bin
+                    if len(baseline_pairs_in_bin) > 0:
+                        baseline_bin_gt = gt_eval[gt_eval.index.get_level_values(0).isin(baseline_pairs_in_bin)]
+                        baseline_bin_pred = baseline_eval[baseline_eval.index.get_level_values(0).isin(baseline_pairs_in_bin)]
+                        baseline_bin_complete_index = pd.MultiIndex.from_product(
+                            [baseline_pairs_in_bin, processed_data.test_timestamps], names=['pair', 'time_stamp']
+                        )
+                        
+                        if not baseline_bin_complete_index.empty and not (baseline_bin_gt.empty and baseline_bin_pred.empty):
+                            baseline_metrics = self._calculate_metrics(
+                                baseline_bin_gt, baseline_bin_pred, baseline_bin_complete_index
+                            )
+                            baseline_bin_f1 = baseline_metrics.F1
+                    
                     baseline_bin_mean_pairwise_f1 = self._calculate_mean_pairwise_f1_for_bin(
                         processed_data, baseline_pairs_in_bin, "baseline"
                     )
@@ -339,6 +361,7 @@ class MetricsCalculator:
                 **vars(perf_metrics_obj), 
                 pair_count=pair_count_for_bin,
                 mean_pairwise_f1=bin_mean_pairwise_f1,
+                baseline_f1=baseline_bin_f1,
                 baseline_mean_pairwise_f1=baseline_bin_mean_pairwise_f1
             )
         
@@ -359,6 +382,11 @@ class MetricsCalculator:
         if processed_data.stability_bins_test is None:
             self.logger.warning("No test-based stability bins available, skipping test stability analysis")
             return metrics_by_bin
+            
+        # Prepare baseline evaluation series
+        baseline_eval = None
+        if not processed_data.baseline_full.empty:
+            baseline_eval = processed_data.baseline_full.set_index(['pair', 'time_stamp'])['present']
         
         # Get evaluation pairs from ground truth AND model predictions (to include FP-only pairs)
         eval_pairs_union = gt_eval.index.get_level_values(0).unique().union(
@@ -398,6 +426,7 @@ class MetricsCalculator:
             if current_bin_complete_index.empty and (gt_bin_filtered.empty and pred_bin_filtered.empty):
                 perf_metrics_obj = PerformanceMetrics(TP=0,FP=0,FN=0,TN=0,Recall=0,Precision=0,TPR=0,FPR=0,F1=0,MCC=0)
                 bin_mean_pairwise_f1 = 0.0
+                baseline_bin_f1 = 0.0
                 baseline_bin_mean_pairwise_f1 = 0.0
             elif current_bin_complete_index.empty and not (gt_bin_filtered.empty and pred_bin_filtered.empty):
                 self.logger.warning(f"Test stability bin {bin_label} has data but complete index is empty. Skipping.")
@@ -411,6 +440,8 @@ class MetricsCalculator:
                     processed_data, pairs_in_bin, "model"
                 )
                 
+                # Calculate baseline metrics for this stability bin if baseline data exists
+                baseline_bin_f1 = None
                 baseline_bin_mean_pairwise_f1 = None
                 if not processed_data.baseline_full.empty:
                     if bin_label == 'Undefined':
@@ -427,6 +458,20 @@ class MetricsCalculator:
                         else:
                             baseline_pairs_in_bin = pd.Index(test_pairs_in_bin)
                     
+                    # Calculate baseline F1 for this bin
+                    if len(baseline_pairs_in_bin) > 0:
+                        baseline_bin_gt = gt_eval[gt_eval.index.get_level_values(0).isin(baseline_pairs_in_bin)]
+                        baseline_bin_pred = baseline_eval[baseline_eval.index.get_level_values(0).isin(baseline_pairs_in_bin)]
+                        baseline_bin_complete_index = pd.MultiIndex.from_product(
+                            [baseline_pairs_in_bin, processed_data.test_timestamps], names=['pair', 'time_stamp']
+                        )
+                        
+                        if not baseline_bin_complete_index.empty and not (baseline_bin_gt.empty and baseline_bin_pred.empty):
+                            baseline_metrics = self._calculate_metrics(
+                                baseline_bin_gt, baseline_bin_pred, baseline_bin_complete_index
+                            )
+                            baseline_bin_f1 = baseline_metrics.F1
+                    
                     baseline_bin_mean_pairwise_f1 = self._calculate_mean_pairwise_f1_for_bin(
                         processed_data, baseline_pairs_in_bin, "baseline"
                     )
@@ -435,6 +480,7 @@ class MetricsCalculator:
                 **vars(perf_metrics_obj),
                 pair_count=pair_count_for_bin,
                 mean_pairwise_f1=bin_mean_pairwise_f1,
+                baseline_f1=baseline_bin_f1,
                 baseline_mean_pairwise_f1=baseline_bin_mean_pairwise_f1
             )
         
@@ -876,6 +922,7 @@ class MetricsCalculator:
                 result.update({
                     "pair_count": int(detail.pair_count),
                     "mean_pairwise_f1": float(detail.mean_pairwise_f1),
+                    "baseline_f1": float(detail.baseline_f1) if detail.baseline_f1 is not None else None,
                     "baseline_mean_pairwise_f1": float(detail.baseline_mean_pairwise_f1) if detail.baseline_mean_pairwise_f1 is not None else None
                 })
                 return result

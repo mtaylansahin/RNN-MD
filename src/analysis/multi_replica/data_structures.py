@@ -50,6 +50,7 @@ class StabilityGroupStats:
     pair_count: MetricStats
     
     # Baseline metrics (optional)
+    baseline_f1: Optional[MetricStats] = None
     baseline_mean_pairwise_f1: Optional[MetricStats] = None
     
     # Metadata

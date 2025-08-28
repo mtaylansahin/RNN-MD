@@ -217,6 +217,8 @@ def export_aggregated_metrics(aggregated_metrics, output_path: str):
             'n_replicas': stats.n_replicas
         }
         
+        if stats.baseline_f1:
+            result['baseline_f1'] = metric_stats_to_dict(stats.baseline_f1)
         if stats.baseline_mean_pairwise_f1:
             result['baseline_mean_pairwise_f1'] = metric_stats_to_dict(stats.baseline_mean_pairwise_f1)
         

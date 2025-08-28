@@ -39,6 +39,7 @@ class MultiReplicaPlotter:
             'f1': '#F18F01',
             'mcc': '#C73E1D',
             'mean_pairwise_f1': '#36213E',
+            'baseline_f1': '#7A9E7E',
             'baseline_mean_pairwise_f1': '#7A9E7E'
         }
     
@@ -203,6 +204,16 @@ class MultiReplicaPlotter:
             metric_names = ['recall', 'precision', 'f1', 'mcc', 'mean_pairwise_f1']
             metric_labels = ['Recall', 'Precision', 'F1', 'MCC', 'Mean Pairwise F1']
             
+            # Check if any stability group has baseline F1 data, and if so, add it to metrics
+            has_baseline_f1 = any(
+                hasattr(group_stats, 'baseline_f1') and group_stats.baseline_f1 is not None
+                for group_stats in stability_stats.values()
+            )
+            
+            if has_baseline_f1:
+                metric_names.append('baseline_f1')
+                metric_labels.append('Baseline F1')
+            
             fig, ax = plt.subplots(figsize=self.figure_size, dpi=self.dpi)
             
             # Set up bar positions
@@ -220,9 +231,19 @@ class MultiReplicaPlotter:
                 for group_name in existing_groups:
                     if group_name in stability_stats:
                         group_stats = stability_stats[group_name]
-                        metric_stats: MetricStats = getattr(group_stats, metric)
-                        means.append(metric_stats.mean)
-                        stds.append(metric_stats.std)
+                        if metric == 'baseline_f1':
+                            # Handle baseline_f1 specially since it might be None
+                            baseline_f1_stats = getattr(group_stats, 'baseline_f1', None)
+                            if baseline_f1_stats is not None:
+                                means.append(baseline_f1_stats.mean)
+                                stds.append(baseline_f1_stats.std)
+                            else:
+                                means.append(0.0)
+                                stds.append(0.0)
+                        else:
+                            metric_stats: MetricStats = getattr(group_stats, metric)
+                            means.append(metric_stats.mean)
+                            stds.append(metric_stats.std)
                         pair_counts.append(int(group_stats.pair_count.mean))
                     else:
                         # Group doesn't exist, use zero values

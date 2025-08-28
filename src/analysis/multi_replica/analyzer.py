@@ -234,6 +234,8 @@ class MultiReplicaAnalyzer:
                         stability_data[group_name][metric_name].append(float(group_data[metric_name]))
                 
                 # Baseline metrics (optional)
+                if 'baseline_f1' in group_data and group_data['baseline_f1'] is not None:
+                    stability_data[group_name]['baseline_f1'].append(float(group_data['baseline_f1']))
                 if 'baseline_mean_pairwise_f1' in group_data and group_data['baseline_mean_pairwise_f1'] is not None:
                     stability_data[group_name]['baseline_mean_pairwise_f1'].append(float(group_data['baseline_mean_pairwise_f1']))
         
@@ -261,6 +263,8 @@ class MultiReplicaAnalyzer:
                 )
                 
                 # Add baseline if available
+                if group_metrics['baseline_f1']:
+                    group_stats.baseline_f1 = MetricStats(values=group_metrics['baseline_f1'])
                 if group_metrics['baseline_mean_pairwise_f1']:
                     group_stats.baseline_mean_pairwise_f1 = MetricStats(values=group_metrics['baseline_mean_pairwise_f1'])
             else:
@@ -300,6 +304,8 @@ class MultiReplicaAnalyzer:
                 )
                 
                 # Add baseline if available
+                if group_metrics['baseline_f1']:
+                    group_stats.baseline_f1 = MetricStats(values=group_metrics['baseline_f1'])
                 if group_metrics['baseline_mean_pairwise_f1']:
                     group_stats.baseline_mean_pairwise_f1 = MetricStats(values=group_metrics['baseline_mean_pairwise_f1'])
                 
