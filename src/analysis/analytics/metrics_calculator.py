@@ -866,7 +866,7 @@ class MetricsCalculator:
                 if report.metrics_by_stability:
                     f.write("--- Performance by Interaction Stability ---\n")
                     for stability_label, stability_detail in report.metrics_by_stability.items():
-                        output_label = stability_label.replace("Moderate", "Uncommon")
+                        output_label = stability_label.replace("Moderate", "Transient")
                         if stability_label == "Undefined":
                             output_label = "Not in Train"
                         

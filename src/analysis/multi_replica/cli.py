@@ -183,7 +183,7 @@ def print_metrics_summary(aggregated_metrics):
         for group_name in ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']:
             if group_name in training_stats:
                 stats = training_stats[group_name]
-                clean_name = group_name.replace('Moderate', 'Uncommon')
+                clean_name = group_name.replace('Moderate', 'Transient')
                 print(f"  {clean_name:15}: F1 = {stats.f1.mean:.4f} ± {stats.f1.std:.4f}")
     
     print("\n" + "="*60 + "\n")

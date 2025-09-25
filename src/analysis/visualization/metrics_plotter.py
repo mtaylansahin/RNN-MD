@@ -124,7 +124,7 @@ class MetricsPlotter(BasePlotter):
                 pair_count = stability_detail.pair_count
                 output_label = bin_label
                 if bin_label == "Moderate (5-50%)":
-                    output_label = "Uncommon (5-50%)"
+                    output_label = "Transient (5-50%)"
                 if bin_label == "Undefined":
                     output_label = undefined_label_replacement
                 print(f"\nMetrics for {output_label} interactions ({pair_count} pairs):", file=scores_output_file)
@@ -211,7 +211,7 @@ class MetricsPlotter(BasePlotter):
         x_labels_with_counts = []
         for bin_label_for_plot in required_categories:
             count = metrics_df_from_report.loc[bin_label_for_plot, 'Pair Count'] if bin_label_for_plot in metrics_df_from_report.index else 0
-            display_label = "Uncommon (5-50%)" if bin_label_for_plot == "Moderate (5-50%)" else bin_label_for_plot
+            display_label = "Transient (5-50%)" if bin_label_for_plot == "Moderate (5-50%)" else bin_label_for_plot
             x_labels_with_counts.append(f'{display_label}\n(N={int(count)})')
         ax.set_xticklabels(x_labels_with_counts, rotation=0, ha='center')
 

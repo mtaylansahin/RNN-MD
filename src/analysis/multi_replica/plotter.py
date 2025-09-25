@@ -11,6 +11,9 @@ import numpy as np
 from typing import List, Dict, Optional, Tuple, Any
 import os
 
+# Set numpy seed for reproducible jitter
+np.random.seed(42)
+
 from core.utils import get_logger
 from .data_structures import AggregatedMetrics, StabilityGroupStats, MetricStats
 
@@ -33,12 +36,33 @@ class MultiReplicaPlotter:
         # Plot styling
         self.figure_size = (14, 10)
         self.dpi = 300
+        
+        # Color scheme matching temporal_and_stability_analysis.py
+        self.stability_palette = {
+            'Rare': '#E74C3C',      # Vivid red for rare interactions
+            'Transient': '#F39C12',  # Warm amber for transient interactions
+            'Stable': '#27AE60'     # Rich green for stable interactions
+        }
+        
+        # Publication colors
+        self.publication_colors = {
+            'primary': '#2C3E50',    # Dark blue-gray for text/lines
+            'secondary': '#34495E',  # Lighter blue-gray for accents
+            'background': '#ECF0F1', # Light gray for backgrounds
+            'grid': '#BDC3C7',       # Medium gray for grids
+            'highlight': '#3498DB'   # Blue for highlights
+        }
+        
+        # Replica colors for consistency
+        self.replica_colors = ['#3498DB', '#E74C3C', '#2ECC71', '#F39C12', '#9B59B6', '#E67E22', '#1ABC9C', '#34495E']
+        
+        # Updated metric colors using consistent palette
         self.colors = {
-            'recall': '#2E86AB',
-            'precision': '#A23B72', 
-            'f1': '#F18F01',
-            'mcc': '#C73E1D',
-            'mean_pairwise_f1': '#36213E',
+            'recall': self.publication_colors['highlight'],     # '#3498DB'
+            'precision': self.stability_palette['Rare'],        # '#E74C3C' 
+            'f1': self.stability_palette['Transient'],          # '#F39C12'
+            'mcc': self.publication_colors['secondary'],        # '#34495E'
+            'mean_pairwise_f1': self.stability_palette['Stable'], # '#27AE60'
             'baseline_f1': '#7A9E7E',
             'baseline_mean_pairwise_f1': '#7A9E7E'
         }
@@ -112,38 +136,96 @@ class MultiReplicaPlotter:
             
             overall = aggregated_metrics.overall_stats
             
-            # Metrics to plot
+            # Metrics to plot (include baseline if available)
             metrics = ['model_recall', 'model_precision', 'model_f1', 'model_mcc', 'model_mean_pairwise_f1']
             metric_labels = ['Recall', 'Precision', 'F1', 'MCC', 'Mean Pairwise F1']
+
+            # Determine if baseline metrics are available
+            baseline_available = any([
+                overall.baseline_recall is not None,
+                overall.baseline_precision is not None,
+                overall.baseline_f1 is not None,
+                overall.baseline_mcc is not None,
+                overall.baseline_mean_pairwise_f1 is not None
+            ])
             
-            # Get values and error bars
-            means = []
-            stds = []
-            colors = []
-            
+            # Get values and error bars for model (and baseline if available)
+            model_means = []
+            model_stds = []
+            model_colors = []
+
             for metric in metrics:
                 metric_stats: MetricStats = getattr(overall, metric)
-                means.append(metric_stats.mean)
-                stds.append(metric_stats.std)
-                colors.append(self.colors.get(metric.replace('model_', ''), '#333333'))
-            
-            # Create bar plot with error bars
+                model_means.append(metric_stats.mean)
+                model_stds.append(metric_stats.std)
+                model_colors.append(self.colors.get(metric.replace('model_', ''), '#333333'))
+
+            # Baseline series (optional)
+            baseline_means = []
+            baseline_stds = []
+            baseline_colors = []
+            if baseline_available:
+                for metric in metrics:
+                    base_attr = metric.replace('model_', 'baseline_')
+                    base_stats: Optional[MetricStats] = getattr(overall, base_attr, None)
+                    if base_stats is not None:
+                        baseline_means.append(base_stats.mean)
+                        baseline_stds.append(base_stats.std)
+                    else:
+                        baseline_means.append(0.0)
+                        baseline_stds.append(0.0)
+                    baseline_colors.append(self.colors.get(base_attr.replace('baseline_', 'baseline_'), '#7A9E7E'))
+
+            # Create grouped bar plot with error bars
             x_pos = np.arange(len(metric_labels))
-            bars = ax.bar(x_pos, means, yerr=stds, capsize=5, color=colors, alpha=0.7, 
-                         edgecolor='white', linewidth=1)
+            bar_width = 0.35 if baseline_available else 0.7
+            bars_model = ax.bar(x_pos - (bar_width/2 if baseline_available else 0), model_means, 
+                                bar_width, yerr=model_stds, capsize=5, color=model_colors, alpha=0.8,
+                                edgecolor='white', linewidth=1, label='Model')
+
+            bars_baseline = None
+            if baseline_available:
+                bars_baseline = ax.bar(x_pos + bar_width/2, baseline_means, bar_width, 
+                                       yerr=baseline_stds, capsize=5, color='#7A9E7E', alpha=0.6,
+                                       edgecolor='white', linewidth=1, label='Baseline')
+            
+            # Add individual datapoints using values from MetricStats
+            for i, metric in enumerate(metrics):
+                metric_stats: MetricStats = getattr(overall, metric)
+                if metric_stats.values and len(metric_stats.values) > 1:
+                    jitter = np.random.normal(0, 0.05, len(metric_stats.values))
+                    x_center = x_pos[i] - (bar_width/2 if baseline_available else 0)
+                    x_jittered = np.full(len(metric_stats.values), x_center) + jitter
+                    ax.scatter(x_jittered, metric_stats.values, color=model_colors[i], 
+                               s=40, alpha=0.8, edgecolors='white', linewidth=1, zorder=3)
+                if baseline_available:
+                    base_attr = metric.replace('model_', 'baseline_')
+                    base_stats: Optional[MetricStats] = getattr(overall, base_attr, None)
+                    if base_stats is not None and base_stats.values and len(base_stats.values) > 1:
+                        jitter = np.random.normal(0, 0.05, len(base_stats.values))
+                        x_center = x_pos[i] + bar_width/2
+                        x_jittered = np.full(len(base_stats.values), x_center) + jitter
+                        ax.scatter(x_jittered, base_stats.values, color='#7A9E7E',
+                                   s=40, alpha=0.8, edgecolors='white', linewidth=1, zorder=3)
             
             # Add value labels on bars
-            for i, (bar, mean, std) in enumerate(zip(bars, means, stds)):
+            for i, (bar, mean, std) in enumerate(zip(bars_model, model_means, model_stds)):
                 height = bar.get_height()
                 ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.01,
-                       f'{mean:.3f}±{std:.3f}',
-                       ha='center', va='bottom', fontweight='bold', fontsize=10)
+                        f'{mean:.3f}±{std:.3f}', ha='center', va='bottom', 
+                        fontweight='bold', fontsize=10)
+            if baseline_available and bars_baseline is not None:
+                for i, (bar, mean, std) in enumerate(zip(bars_baseline, baseline_means, baseline_stds)):
+                    height = bar.get_height()
+                    ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.01,
+                            f'{mean:.3f}±{std:.3f}', ha='center', va='bottom', 
+                            fontweight='bold', fontsize=10, color='#2C3E50')
             
             # Styling
             ax.set_xlabel('Metrics', fontsize=14, fontweight='bold')
             ax.set_ylabel('Score', fontsize=14, fontweight='bold')
-            ax.set_title(f'Overall Model Performance Across {overall.n_replicas} Replicas', 
-                        fontsize=16, fontweight='bold', pad=20)
+            title_suffix = f'Across {overall.n_replicas} Replicas'
+            ax.set_title(f'Overall Performance {title_suffix}', fontsize=16, fontweight='bold', pad=20)
             ax.set_xticks(x_pos)
             ax.set_xticklabels(metric_labels, fontsize=12)
             ax.set_ylim(0, 1.0)
@@ -155,6 +237,8 @@ class MultiReplicaPlotter:
                    bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8),
                    verticalalignment='top')
             
+            if baseline_available:
+                ax.legend(loc='upper right')
             plt.tight_layout()
             
             # Save plot
@@ -257,6 +341,31 @@ class MultiReplicaPlotter:
                              label=label, color=self.colors.get(metric, f'C{i}'), 
                              alpha=0.8, edgecolor='white', linewidth=0.5)
                 
+                # Add individual datapoints using values from MetricStats
+                for j, group_name in enumerate(existing_groups):
+                    if group_name in stability_stats:
+                        group_stats = stability_stats[group_name]
+                        if metric == 'baseline_f1':
+                            # Handle baseline_f1 specially since it might be None
+                            baseline_f1_stats = getattr(group_stats, 'baseline_f1', None)
+                            if baseline_f1_stats is not None and baseline_f1_stats.values and len(baseline_f1_stats.values) > 1:
+                                jitter = np.random.normal(0, 0.02, len(baseline_f1_stats.values))
+                                x_jittered = np.full(len(baseline_f1_stats.values), x_offset[j]) + jitter
+                                ax.scatter(x_jittered, baseline_f1_stats.values, 
+                                         color=self.colors.get(metric, f'C{i}'), 
+                                         s=30, alpha=0.9, edgecolors='white', linewidth=1, zorder=3)
+                        else:
+                            metric_stats: MetricStats = getattr(group_stats, metric)
+                            if metric_stats.values and len(metric_stats.values) > 1:  # Only show points if we have multiple replicas
+                                # Add small random jitter to x-position for visibility
+                                jitter = np.random.normal(0, 0.02, len(metric_stats.values))
+                                x_jittered = np.full(len(metric_stats.values), x_offset[j]) + jitter
+                                
+                                # Plot individual points
+                                ax.scatter(x_jittered, metric_stats.values, 
+                                         color=self.colors.get(metric, f'C{i}'), 
+                                         s=30, alpha=0.9, edgecolors='white', linewidth=1, zorder=3)
+                
                 # Add value labels to all bars
                 for j, (bar, mean, std) in enumerate(zip(bars, means, stds)):
                     if mean > 0:  # Only show labels for non-zero values
@@ -302,7 +411,7 @@ class MultiReplicaPlotter:
                     count_str = '(N=0)'
                 
                 # Clean up group name
-                clean_name = group_name.replace('Moderate', 'Uncommon')
+                clean_name = group_name.replace('Moderate', 'Transient')
                 if group_name == 'Undefined':
                     clean_name = 'Not in Train' if frequency_type == 'training' else 'Not in Test'
                 
@@ -379,7 +488,29 @@ class MultiReplicaPlotter:
             
             bars2 = ax1.bar(x_pos + bar_width/2, test_f1_means, bar_width,
                            yerr=test_f1_stds, capsize=5, label='Test Frequency', 
-                           color='#FF6B6B', alpha=0.7, edgecolor='white')
+                           color=self.stability_palette['Rare'], alpha=0.7, edgecolor='white')
+            
+            # Add individual datapoints for F1 scores using MetricStats.values
+            for j, group_name in enumerate(common_groups):
+                # Plot training frequency points
+                if group_name in training_stats:
+                    training_f1_stats = training_stats[group_name].f1
+                    if training_f1_stats.values and len(training_f1_stats.values) > 1:
+                        jitter = np.random.normal(0, 0.02, len(training_f1_stats.values))
+                        x_jittered = np.full(len(training_f1_stats.values), x_pos[j] - bar_width/2) + jitter
+                        ax1.scatter(x_jittered, training_f1_stats.values, 
+                                  color=self.colors['f1'], s=30, alpha=0.9, 
+                                  edgecolors='white', linewidth=1, zorder=3)
+                
+                # Plot test frequency points
+                if group_name in test_stats:
+                    test_f1_stats = test_stats[group_name].f1
+                    if test_f1_stats.values and len(test_f1_stats.values) > 1:
+                        jitter = np.random.normal(0, 0.02, len(test_f1_stats.values))
+                        x_jittered = np.full(len(test_f1_stats.values), x_pos[j] + bar_width/2) + jitter
+                        ax1.scatter(x_jittered, test_f1_stats.values, 
+                                  color=self.stability_palette['Rare'], s=30, alpha=0.9, 
+                                  edgecolors='white', linewidth=1, zorder=3)
             
             # Add value labels
             for bars, means in [(bars1, training_f1_means), (bars2, test_f1_means)]:
@@ -394,7 +525,7 @@ class MultiReplicaPlotter:
             ax1.set_ylabel('F1 Score', fontsize=12, fontweight='bold') 
             ax1.set_title('F1 Score: Training vs Test Frequency Binning', fontsize=14, fontweight='bold')
             ax1.set_xticks(x_pos)
-            ax1.set_xticklabels([g.replace('Moderate', 'Uncommon') for g in common_groups])
+            ax1.set_xticklabels([g.replace('Moderate', 'Transient') for g in common_groups])
             ax1.legend()
             ax1.grid(True, alpha=0.3, axis='y')
             ax1.set_ylim(0, 1.0)
@@ -407,17 +538,39 @@ class MultiReplicaPlotter:
             
             bars3 = ax2.bar(x_pos - bar_width/2, training_counts, bar_width,
                            yerr=training_count_stds, capsize=5, label='Training Frequency',
-                           color='#4ECDC4', alpha=0.7, edgecolor='white')
+                           color=self.stability_palette['Stable'], alpha=0.7, edgecolor='white')
             
             bars4 = ax2.bar(x_pos + bar_width/2, test_counts, bar_width,
                            yerr=test_count_stds, capsize=5, label='Test Frequency',
-                           color='#45B7D1', alpha=0.7, edgecolor='white')
+                           color=self.publication_colors['highlight'], alpha=0.7, edgecolor='white')
+            
+            # Add individual datapoints for pair counts using MetricStats.values
+            for j, group_name in enumerate(common_groups):
+                # Plot training pair count points
+                if group_name in training_stats:
+                    training_count_stats = training_stats[group_name].pair_count
+                    if training_count_stats.values and len(training_count_stats.values) > 1:
+                        jitter = np.random.normal(0, 0.02, len(training_count_stats.values))
+                        x_jittered = np.full(len(training_count_stats.values), x_pos[j] - bar_width/2) + jitter
+                        ax2.scatter(x_jittered, training_count_stats.values, 
+                                  color=self.stability_palette['Stable'], s=30, alpha=0.9, 
+                                  edgecolors='white', linewidth=1, zorder=3)
+                
+                # Plot test pair count points
+                if group_name in test_stats:
+                    test_count_stats = test_stats[group_name].pair_count
+                    if test_count_stats.values and len(test_count_stats.values) > 1:
+                        jitter = np.random.normal(0, 0.02, len(test_count_stats.values))
+                        x_jittered = np.full(len(test_count_stats.values), x_pos[j] + bar_width/2) + jitter
+                        ax2.scatter(x_jittered, test_count_stats.values, 
+                                  color=self.publication_colors['highlight'], s=30, alpha=0.9, 
+                                  edgecolors='white', linewidth=1, zorder=3)
             
             ax2.set_xlabel('Stability Groups', fontsize=12, fontweight='bold')
             ax2.set_ylabel('Pair Count', fontsize=12, fontweight='bold')
             ax2.set_title('Pair Counts: Training vs Test Frequency Binning', fontsize=14, fontweight='bold') 
             ax2.set_xticks(x_pos)
-            ax2.set_xticklabels([g.replace('Moderate', 'Uncommon') for g in common_groups])
+            ax2.set_xticklabels([g.replace('Moderate', 'Transient') for g in common_groups])
             ax2.legend()
             ax2.grid(True, alpha=0.3, axis='y')
             
@@ -510,11 +663,33 @@ class MultiReplicaPlotter:
             # Create bars
             bars1 = ax.bar(x_pos - bar_width/2, training_means, bar_width,
                           yerr=training_stds, capsize=5, label='Training Frequency',
-                          color=self.colors.get(metric_name, '#4ECDC4'), alpha=0.7)
+                          color=self.colors.get(metric_name, self.publication_colors['secondary']), alpha=0.7)
             
             bars2 = ax.bar(x_pos + bar_width/2, test_means, bar_width,
                           yerr=test_stds, capsize=5, label='Test Frequency',
-                          color='#FF6B6B', alpha=0.7)
+                          color=self.stability_palette['Rare'], alpha=0.7)
+            
+            # Add individual datapoints using MetricStats.values
+            for j, group_name in enumerate(common_groups):
+                # Plot training frequency points
+                if group_name in training_stats:
+                    training_metric_stats = getattr(training_stats[group_name], metric_name)
+                    if training_metric_stats.values and len(training_metric_stats.values) > 1:
+                        jitter = np.random.normal(0, 0.02, len(training_metric_stats.values))
+                        x_jittered = np.full(len(training_metric_stats.values), x_pos[j] - bar_width/2) + jitter
+                        ax.scatter(x_jittered, training_metric_stats.values, 
+                                 color=self.colors.get(metric_name, self.publication_colors['secondary']), 
+                                 s=30, alpha=0.9, edgecolors='white', linewidth=1, zorder=3)
+                
+                # Plot test frequency points
+                if group_name in test_stats:
+                    test_metric_stats = getattr(test_stats[group_name], metric_name)
+                    if test_metric_stats.values and len(test_metric_stats.values) > 1:
+                        jitter = np.random.normal(0, 0.02, len(test_metric_stats.values))
+                        x_jittered = np.full(len(test_metric_stats.values), x_pos[j] + bar_width/2) + jitter
+                        ax.scatter(x_jittered, test_metric_stats.values, 
+                                 color=self.stability_palette['Rare'], s=30, alpha=0.9, 
+                                 edgecolors='white', linewidth=1, zorder=3)
             
             # Add value labels
             for bars, means in [(bars1, training_means), (bars2, test_means)]:
@@ -531,7 +706,7 @@ class MultiReplicaPlotter:
             ax.set_title(f'{metric_label} by Stability Group\nAcross {aggregated_metrics.n_replicas} Replicas',
                         fontsize=16, fontweight='bold')
             ax.set_xticks(x_pos)
-            ax.set_xticklabels([g.replace('Moderate', 'Uncommon') for g in common_groups])
+            ax.set_xticklabels([g.replace('Moderate', 'Transient') for g in common_groups])
             ax.legend()
             ax.grid(True, alpha=0.3, axis='y')
             ax.set_ylim(0, 1.0)
