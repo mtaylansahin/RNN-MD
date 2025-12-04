@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import numpy as np
 from typing import List, Dict, Optional, Tuple, Any
 import os
@@ -179,15 +180,34 @@ class MultiReplicaPlotter:
             # Create grouped bar plot with error bars
             x_pos = np.arange(len(metric_labels))
             bar_width = 0.35 if baseline_available else 0.7
-            bars_model = ax.bar(x_pos - (bar_width/2 if baseline_available else 0), model_means, 
-                                bar_width, yerr=model_stds, capsize=5, color=model_colors, alpha=0.8,
-                                edgecolor='white', linewidth=1, label='Model')
+            bars_model = ax.bar(
+                x_pos - (bar_width/2 if baseline_available else 0),
+                model_means,
+                bar_width,
+                yerr=model_stds,
+                capsize=5,
+                color=model_colors,
+                alpha=0.85,
+                edgecolor='white',
+                linewidth=1
+            )
 
             bars_baseline = None
             if baseline_available:
-                bars_baseline = ax.bar(x_pos + bar_width/2, baseline_means, bar_width, 
-                                       yerr=baseline_stds, capsize=5, color='#7A9E7E', alpha=0.6,
-                                       edgecolor='white', linewidth=1, label='Baseline')
+                bars_baseline = ax.bar(
+                    x_pos + bar_width/2,
+                    baseline_means,
+                    bar_width,
+                    yerr=baseline_stds,
+                    capsize=5,
+                    color='#7A9E7E',
+                    alpha=0.55,
+                    edgecolor='white',
+                    linewidth=1
+                )
+                # Apply hatch pattern to baseline bars to avoid relying on colors
+                for rect in bars_baseline:
+                    rect.set_hatch('//')
             
             # Add individual datapoints using values from MetricStats
             for i, metric in enumerate(metrics):
@@ -205,8 +225,17 @@ class MultiReplicaPlotter:
                         jitter = np.random.normal(0, 0.05, len(base_stats.values))
                         x_center = x_pos[i] + bar_width/2
                         x_jittered = np.full(len(base_stats.values), x_center) + jitter
-                        ax.scatter(x_jittered, base_stats.values, color='#7A9E7E',
-                                   s=40, alpha=0.8, edgecolors='white', linewidth=1, zorder=3)
+                        ax.scatter(
+                            x_jittered,
+                            base_stats.values,
+                            color='#7A9E7E',
+                            s=40,
+                            alpha=0.8,
+                            edgecolors='white',
+                            linewidth=1,
+                            zorder=3,
+                            marker='s'  # square markers for baseline for pattern-based distinction
+                        )
             
             # Add value labels on bars
             for i, (bar, mean, std) in enumerate(zip(bars_model, model_means, model_stds)):
@@ -238,7 +267,12 @@ class MultiReplicaPlotter:
                    verticalalignment='top')
             
             if baseline_available:
-                ax.legend(loc='upper right')
+                # Custom legend that distinguishes by pattern, not color
+                legend_handles = [
+                    Patch(facecolor='#D9D9D9', edgecolor='#2C3E50', label='Model'),
+                    Patch(facecolor='#D9D9D9', edgecolor='#2C3E50', hatch='//', label='Baseline')
+                ]
+                ax.legend(handles=legend_handles, loc='upper right')
             plt.tight_layout()
             
             # Save plot

@@ -21,6 +21,7 @@ from collections import defaultdict, Counter
 import warnings
 from matplotlib.patches import Patch, Rectangle
 from matplotlib.gridspec import GridSpec
+from matplotlib.ticker import MaxNLocator
 from typing import Dict, List, Tuple, Optional
 
 warnings.filterwarnings('ignore')
@@ -421,6 +422,8 @@ class TemporalStabilityAnalysis:
             uniform_ylim_max = (row_max_count * 1.1) if row_max_count > 0 else 1
             for row_ax in row_axes:
                 row_ax.set_ylim(0, uniform_ylim_max)
+                # Ensure y-axis uses integer ticks for counts
+                row_ax.yaxis.set_major_locator(MaxNLocator(integer=True))
             
             # Store complex stats for summary
             all_complex_stats[complex_name] = complex_stats
