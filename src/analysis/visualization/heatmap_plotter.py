@@ -78,6 +78,35 @@ class HeatmapPlotter(BasePlotter):
         """
         self.logger.info("Generating time vs pair heatmaps")
         
+        # Apply publication style
+        plt.rcParams.update({
+            'font.family': 'sans-serif',
+            'font.sans-serif': ['Arial', 'DejaVu Sans', 'Liberation Sans', 'sans-serif'],
+            'font.size': 20,
+            'axes.titlesize': 26,
+            'axes.labelsize': 22,
+            'xtick.labelsize': 20,
+            'ytick.labelsize': 20,
+            'legend.fontsize': 22,
+            'figure.titlesize': 32,
+            'axes.spines.top': False,
+            'axes.spines.right': False,
+            'axes.spines.left': True,
+            'axes.spines.bottom': True
+        })
+        
+        # Okabe-Ito Colors for Overlay
+        okabe_ito = {
+            'vermilion': '#D55E00',
+            'blue': '#0072B2',
+            'bluish_green': '#009E73',
+            'orange': '#E69F00',
+            'sky_blue': '#56B4E9',
+            'white': '#FFFFFF',
+            'light_gray': '#F0F0F0',
+            'dark_gray': '#2C3E50'
+        }
+        
         # Process test data
         gt_pivot_test = gt_full.pivot(index='pair', columns='time_stamp', values='present')
         pred_pivot_test = pred_full.pivot(index='pair', columns='time_stamp', values='present')
@@ -149,15 +178,21 @@ class HeatmapPlotter(BasePlotter):
             overlay_combined = overlay_matrix_test
             valid_data_offset = 0
         
-        # Setup plotting
-        colors = self.get_color_palette()
-        overlay_colors = self.get_color_palette("overlay")
+        # Define colors using Okabe-Ito palette
+        # TN = White/LightGray, FN = Vermilion, FP = Orange, TP = BluishGreen
         
-        cmap_gt = sns.color_palette([overlay_colors["TN"], colors["ground_truth"]])
-        cmap_pred = sns.color_palette([overlay_colors["TN"], colors["prediction"]])
-        cmap_overlay = sns.color_palette([
-            overlay_colors["TN"], overlay_colors["FN"], 
-            overlay_colors["FP"], overlay_colors["TP"]
+        # Ground Truth: 0=White, 1=Blue
+        cmap_gt = mcolors.ListedColormap([okabe_ito['light_gray'], okabe_ito['blue']])
+        
+        # Predictions: 0=White, 1=SkyBlue
+        cmap_pred = mcolors.ListedColormap([okabe_ito['light_gray'], okabe_ito['sky_blue']])
+        
+        # Overlay: 0=TN(LightGray), 1=FN(Vermilion), 2=FP(Orange), 3=TP(BluishGreen)
+        cmap_overlay = mcolors.ListedColormap([
+            okabe_ito['light_gray'],  # TN
+            okabe_ito['vermilion'],   # FN
+            okabe_ito['orange'],      # FP
+            okabe_ito['bluish_green'] # TP
         ])
         
         overlay_labels = [
@@ -170,7 +205,7 @@ class HeatmapPlotter(BasePlotter):
         fig_width = max(15, gt_combined.shape[1] * 0.25)
         fig, axes = plt.subplots(3, 1, figsize=(fig_width, fig_height), sharex=False, sharey=True)
         
-        common_heatmap_kws = {"linewidths": 0.1, "linecolor": 'lightgray'}
+        common_heatmap_kws = {"linewidths": 0.1, "linecolor": 'white'} # changed to white for cleaner look
         current_yticklabels = gt_combined.index
         
         # Plot Ground Truth
@@ -178,68 +213,73 @@ class HeatmapPlotter(BasePlotter):
             gt_combined, ax=axes[0], cmap=cmap_gt, cbar=False,
             yticklabels=current_yticklabels, **common_heatmap_kws
         )
-        axes[0].set_title('Ground Truth (Last Validation + Test)')
-        axes[0].set_ylabel('Residue Pair')
+        axes[0].set_title('Ground Truth (Last Validation + Test)', fontweight='bold')
+        axes[0].set_ylabel('Residue Pair', fontweight='bold')
         axes[0].set_xlabel('')
         
         # Plot Predictions
-        cmap_pred_viz = mcolors.ListedColormap(cmap_pred)
         sns.heatmap(
-            pred_combined.fillna(0).astype(int), ax=axes[1], cmap=cmap_pred_viz,
+            pred_combined.fillna(0).astype(int), ax=axes[1], cmap=cmap_pred,
             vmin=0, vmax=1, cbar=False, yticklabels=current_yticklabels, **common_heatmap_kws
         )
-        axes[1].set_title('Predictions (Validation GT + Test Predictions)')
-        axes[1].set_ylabel('Residue Pair')
+        axes[1].set_title('Predictions (Validation GT + Test Predictions)', fontweight='bold')
+        axes[1].set_ylabel('Residue Pair', fontweight='bold')
         axes[1].set_xlabel('')
         
         # Plot Overlay
-        cmap_overlay_viz = mcolors.ListedColormap(cmap_overlay)
         bounds_overlay = [0, 1, 2, 3, 4]
-        norm_overlay = mcolors.BoundaryNorm(bounds_overlay, cmap_overlay_viz.N)
+        norm_overlay = mcolors.BoundaryNorm(bounds_overlay, cmap_overlay.N)
         
         cax = sns.heatmap(
-            overlay_combined.fillna(0).astype(int), ax=axes[2], cmap=cmap_overlay_viz,
+            overlay_combined.fillna(0).astype(int), ax=axes[2], cmap=cmap_overlay,
             norm=norm_overlay, cbar=True, yticklabels=current_yticklabels,
             **common_heatmap_kws, cbar_kws={"ticks": [0.5, 1.5, 2.5, 3.5], "label": "Result Type"}
         )
-        axes[2].set_title('Overlay (Validation TN/TP + Test Result)')
-        axes[2].set_xlabel('Time Stamp')
-        axes[2].set_ylabel('Residue Pair')
+        axes[2].set_title('Overlay (Validation TN/TP + Test Result)', fontweight='bold')
+        axes[2].set_xlabel('Time Stamp', fontweight='bold')
+        axes[2].set_ylabel('Residue Pair', fontweight='bold')
         
         # Set colorbar labels
         colorbar = cax.collections[0].colorbar
         colorbar.set_ticklabels(overlay_labels)
+        colorbar.ax.tick_params(labelsize=18)
         
         # Adjust font sizes
         num_labels = len(current_yticklabels)
-        font_size = max(4, min(10, int((fig_height / num_labels) * 72 * 0.35))) if num_labels > 0 else 10
+        font_size = max(8, min(16, int((fig_height / num_labels) * 72 * 0.35))) if num_labels > 0 else 10
         
         for ax in axes:
             ax.tick_params(axis='y', labelsize=font_size)
+            ax.tick_params(axis='x', labelsize=16)
         
         # Add vertical separator if validation data included
         if valid_data_offset > 0:
             for ax in axes:
-                ax.axvline(x=valid_data_offset, color='red', linestyle='--', linewidth=2)
+                ax.axvline(x=valid_data_offset, color=okabe_ito['dark_gray'], linestyle='--', linewidth=2)
                 ax.text(
                     valid_data_offset / 2., ax.get_ylim()[0] * 1.02, 'Validation',
-                    ha='center', va='bottom', color='red', fontsize=10, weight='bold'
+                    ha='center', va='bottom', color=okabe_ito['vermilion'], fontsize=18, weight='bold'
                 )
                 ax.text(
                     valid_data_offset + (gt_combined.shape[1] - valid_data_offset) / 2.,
                     ax.get_ylim()[0] * 1.02, 'Test',
-                    ha='center', va='bottom', color='black', fontsize=10, weight='bold'
+                    ha='center', va='bottom', color=okabe_ito['dark_gray'], fontsize=18, weight='bold'
                 )
         
         fig.suptitle(
             f'Interaction Dynamics: Validation History vs Test Prediction{plot_title_suffix}',
-            fontsize=16, y=0.995
+            fontsize=32, fontweight='bold', y=0.995
         )
         plt.tight_layout(rect=[0, 0.03, 1, 0.97])
         
         # Save and close
         filename = 'heatmap_time_vs_pairs_VERTICAL_with_valid.png'
         plot_path = self.save_plot(filename, fig)
+        
+        # Also save SVG
+        svg_filename = filename.replace('.png', '.svg')
+        self.save_plot(svg_filename, fig)
+        
         self.close_plot(fig)
         
-        return plot_path 
+        return plot_path

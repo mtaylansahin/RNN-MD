@@ -34,36 +34,83 @@ class MultiReplicaPlotter:
         # Create output directory
         Path(output_directory).mkdir(parents=True, exist_ok=True)
         
-        # Plot styling
+        # Plot styling - Publication Ready (Okabe-Ito & Guide)
+        plt.rcParams.update({
+            'font.family': 'sans-serif',
+            'font.sans-serif': ['Arial', 'DejaVu Sans', 'Liberation Sans', 'sans-serif'],
+            'font.size': 20,
+            'axes.titlesize': 26,
+            'axes.labelsize': 22,
+            'xtick.labelsize': 20,
+            'ytick.labelsize': 20,
+            'legend.fontsize': 22,
+            'figure.titlesize': 32,
+            'axes.spines.top': False,
+            'axes.spines.right': False,
+            'axes.spines.left': True,
+            'axes.spines.bottom': True,
+            'axes.linewidth': 1.5,
+            'axes.edgecolor': '#2C3E50',
+            'axes.grid': True,
+            'grid.alpha': 0.2,
+            'grid.linewidth': 0.6,
+            'grid.color': '#BDC3C7',
+            'axes.axisbelow': True,
+            'legend.frameon': False,
+            'legend.fancybox': True,
+            'legend.borderpad': 0.5,
+        })
+        
         self.figure_size = (14, 10)
         self.dpi = 300
         
-        # Color scheme matching temporal_and_stability_analysis.py
+        # Okabe-Ito Colorblind-Safe Palette
+        self.okabe_ito = {
+            'vermilion': '#D55E00',
+            'blue': '#0072B2',
+            'bluish_green': '#009E73',
+            'orange': '#E69F00',
+            'sky_blue': '#56B4E9',
+            'reddish_purple': '#CC79A7',
+            'yellow': '#F0E442',
+            'black': '#000000'
+        }
+
+        # Stability Group Colors (Okabe-Ito)
         self.stability_palette = {
-            'Rare': '#E74C3C',      # Vivid red for rare interactions
-            'Transient': '#F39C12',  # Warm amber for transient interactions
-            'Stable': '#27AE60'     # Rich green for stable interactions
+            'Rare': self.okabe_ito['vermilion'],      # #D55E00
+            'Transient': self.okabe_ito['orange'],    # #E69F00
+            'Stable': self.okabe_ito['bluish_green']  # #009E73
         }
         
-        # Publication colors
+        # Publication utility colors
         self.publication_colors = {
-            'primary': '#2C3E50',    # Dark blue-gray for text/lines
-            'secondary': '#34495E',  # Lighter blue-gray for accents
-            'background': '#ECF0F1', # Light gray for backgrounds
-            'grid': '#BDC3C7',       # Medium gray for grids
-            'highlight': '#3498DB'   # Blue for highlights
+            'primary': '#2C3E50',
+            'secondary': '#34495E',
+            'background': '#ECF0F1',
+            'grid': '#BDC3C7',
+            'highlight': '#3498DB'
         }
         
-        # Replica colors for consistency
-        self.replica_colors = ['#3498DB', '#E74C3C', '#2ECC71', '#F39C12', '#9B59B6', '#E67E22', '#1ABC9C', '#34495E']
+        # Replica colors (Okabe-Ito sequence)
+        self.replica_colors = [
+            self.okabe_ito['blue'], 
+            self.okabe_ito['vermilion'], 
+            self.okabe_ito['bluish_green'], 
+            self.okabe_ito['orange'], 
+            self.okabe_ito['sky_blue'], 
+            self.okabe_ito['reddish_purple'], 
+            self.okabe_ito['yellow'], 
+            self.okabe_ito['black']
+        ]
         
-        # Updated metric colors using consistent palette
+        # Metric Colors mapped to Okabe-Ito
         self.colors = {
-            'recall': self.publication_colors['highlight'],     # '#3498DB'
-            'precision': self.stability_palette['Rare'],        # '#E74C3C' 
-            'f1': self.stability_palette['Transient'],          # '#F39C12'
-            'mcc': self.publication_colors['secondary'],        # '#34495E'
-            'mean_pairwise_f1': self.stability_palette['Stable'], # '#27AE60'
+            'recall': self.okabe_ito['blue'],            # #0072B2
+            'precision': self.okabe_ito['reddish_purple'],# #CC79A7
+            'f1': self.okabe_ito['vermilion'],           # #D55E00
+            'mcc': self.okabe_ito['sky_blue'],           # #56B4E9
+            'mean_pairwise_f1': self.okabe_ito['bluish_green'], # #009E73
             'baseline_f1': '#7A9E7E',
             'baseline_mean_pairwise_f1': '#7A9E7E'
         }
@@ -189,7 +236,8 @@ class MultiReplicaPlotter:
                 color=model_colors,
                 alpha=0.85,
                 edgecolor='white',
-                linewidth=1
+                linewidth=1,
+                label='Model'
             )
 
             bars_baseline = None
@@ -203,7 +251,8 @@ class MultiReplicaPlotter:
                     color='#7A9E7E',
                     alpha=0.55,
                     edgecolor='white',
-                    linewidth=1
+                    linewidth=1,
+                    label='Baseline'
                 )
                 # Apply hatch pattern to baseline bars to avoid relying on colors
                 for rect in bars_baseline:
@@ -216,8 +265,8 @@ class MultiReplicaPlotter:
                     jitter = np.random.normal(0, 0.05, len(metric_stats.values))
                     x_center = x_pos[i] - (bar_width/2 if baseline_available else 0)
                     x_jittered = np.full(len(metric_stats.values), x_center) + jitter
-                    ax.scatter(x_jittered, metric_stats.values, color=model_colors[i], 
-                               s=40, alpha=0.8, edgecolors='white', linewidth=1, zorder=3)
+                    ax.scatter(x_jittered, metric_stats.values, color='white', 
+                               s=40, alpha=0.9, edgecolors=model_colors[i], linewidth=1.5, zorder=3)
                 if baseline_available:
                     base_attr = metric.replace('model_', 'baseline_')
                     base_stats: Optional[MetricStats] = getattr(overall, base_attr, None)
@@ -228,11 +277,11 @@ class MultiReplicaPlotter:
                         ax.scatter(
                             x_jittered,
                             base_stats.values,
-                            color='#7A9E7E',
+                            color='white',
                             s=40,
-                            alpha=0.8,
-                            edgecolors='white',
-                            linewidth=1,
+                            alpha=0.9,
+                            edgecolors='#7A9E7E',
+                            linewidth=1.5,
                             zorder=3,
                             marker='s'  # square markers for baseline for pattern-based distinction
                         )
@@ -241,43 +290,61 @@ class MultiReplicaPlotter:
             for i, (bar, mean, std) in enumerate(zip(bars_model, model_means, model_stds)):
                 height = bar.get_height()
                 ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.01,
-                        f'{mean:.3f}±{std:.3f}', ha='center', va='bottom', 
-                        fontweight='bold', fontsize=10)
+                        f'{mean:.3f}', ha='center', va='bottom', 
+                        fontweight='bold', fontsize=12)
             if baseline_available and bars_baseline is not None:
                 for i, (bar, mean, std) in enumerate(zip(bars_baseline, baseline_means, baseline_stds)):
                     height = bar.get_height()
                     ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.01,
-                            f'{mean:.3f}±{std:.3f}', ha='center', va='bottom', 
-                            fontweight='bold', fontsize=10, color='#2C3E50')
+                            f'{mean:.3f}', ha='center', va='bottom', 
+                            fontweight='bold', fontsize=12, color='#2C3E50')
             
             # Styling
-            ax.set_xlabel('Metrics', fontsize=14, fontweight='bold')
-            ax.set_ylabel('Score', fontsize=14, fontweight='bold')
+            ax.set_ylabel('Score', fontweight='bold')
+            # Remove redundant X label if metrics are clear
+            # ax.set_xlabel('Metrics', fontweight='bold') 
+            
             title_suffix = f'Across {overall.n_replicas} Replicas'
-            ax.set_title(f'Overall Performance {title_suffix}', fontsize=16, fontweight='bold', pad=20)
+            ax.set_title(f'Overall Performance {title_suffix}', fontweight='bold', pad=20)
             ax.set_xticks(x_pos)
-            ax.set_xticklabels(metric_labels, fontsize=12)
+            ax.set_xticklabels(metric_labels)
             ax.set_ylim(0, 1.0)
-            ax.grid(True, alpha=0.3, axis='y')
+            
+            # Grid - horizontal only
+            ax.grid(visible=True, axis='y', alpha=0.2)
+            ax.grid(visible=False, axis='x')
             
             # Add replica count annotation
-            ax.text(0.02, 0.98, f'N = {overall.n_replicas} replicas', 
-                   transform=ax.transAxes, fontsize=12, 
-                   bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8),
-                   verticalalignment='top')
+            stats_text = f"N = {overall.n_replicas} replicas"
+            props = dict(boxstyle='round,pad=0.25', facecolor='white', 
+                        alpha=0.85, edgecolor='gray', linewidth=0.5)
+            ax.text(0.98, 0.98, stats_text, 
+                   transform=ax.transAxes, fontsize=18,
+                   bbox=props,
+                   verticalalignment='top', horizontalalignment='right')
             
             if baseline_available:
-                # Custom legend that distinguishes by pattern, not color
-                legend_handles = [
-                    Patch(facecolor='#D9D9D9', edgecolor='#2C3E50', label='Model'),
-                    Patch(facecolor='#D9D9D9', edgecolor='#2C3E50', hatch='//', label='Baseline')
+                # Unified Legend
+                handles = [
+                    Patch(facecolor='gray', edgecolor='none', alpha=0.5, label='Model'),
+                    Patch(facecolor='gray', edgecolor='none', hatch='//', alpha=0.5, label='Baseline')
                 ]
-                ax.legend(handles=legend_handles, loc='upper right')
+                fig.legend(handles=handles, loc='lower center', 
+                          bbox_to_anchor=(0.5, 0.02), ncol=2, frameon=False)
+                plt.subplots_adjust(bottom=0.15)
+            
             plt.tight_layout()
+            if baseline_available:
+                 plt.subplots_adjust(bottom=0.15) # Adjust again after tight_layout
             
             # Save plot
             output_path = os.path.join(self.output_directory, "multi_replica_overall_metrics.png")
             plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
+            
+            # Also save SVG
+            svg_path = os.path.join(self.output_directory, "multi_replica_overall_metrics.svg")
+            plt.savefig(svg_path, format='svg', bbox_inches='tight')
+            
             plt.close()
             
             self.logger.info(f"Generated overall metrics plot: {output_path}")

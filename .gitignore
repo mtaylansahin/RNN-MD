@@ -190,13 +190,6 @@ local.properties
 temp/
 tmp/
 
-# Model files and large data (uncomment if needed)
-# *.pkl
-# *.h5
-# *.model
-# *.pt
-# *.pth
-
 # Results and output directories
 results/
 outputs/
@@ -218,7 +211,4 @@ config.json
 *.sublime-workspace
 
 # Project specific (RNN-MD)
-# Uncomment the below if you want to ignore specific directories
-# RE-Net/models/
-# RE-Net/checkpoints/
-# example-run/results/ 
+data/

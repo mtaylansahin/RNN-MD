@@ -26,38 +26,35 @@ from typing import Dict, List, Tuple, Optional
 
 warnings.filterwarnings('ignore')
 
-# Publication-ready styling configuration
 plt.rcParams.update({
-    # Font settings for publication quality
     'font.family': 'sans-serif',
     'font.sans-serif': ['Arial', 'DejaVu Sans', 'Liberation Sans', 'sans-serif'],
-    'font.size': 11,
-    'axes.titlesize': 14,
-    'axes.labelsize': 12,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 11,
-    'figure.titlesize': 18,
+    'font.size': 20,
+    'axes.titlesize': 26,
+    'axes.labelsize': 22,
+    'xtick.labelsize': 20,
+    'ytick.labelsize': 20,
+    'legend.fontsize': 22,
+    'figure.titlesize': 32,
     
-    # Professional plot styling
     'axes.spines.top': False,
     'axes.spines.right': False,
     'axes.spines.left': True,
     'axes.spines.bottom': True,
-    'axes.linewidth': 1.2,
+    'axes.linewidth': 1.5,
     'axes.edgecolor': '#2C3E50',
     
     # Grid and background
     'axes.grid': True,
-    'grid.alpha': 0.25,
+    'grid.alpha': 0.2,     # Lighter grid
     'grid.linewidth': 0.6,
     'grid.color': '#BDC3C7',
     'axes.axisbelow': True,
     
     # Lines and patches
-    'lines.linewidth': 2.5,
+    'lines.linewidth': 2.0,
     'lines.solid_capstyle': 'round',
-    'patch.linewidth': 0.8,
+    'patch.linewidth': 1.0,
     'patch.edgecolor': 'white',
     
     # Figure settings
@@ -75,11 +72,9 @@ plt.rcParams.update({
     'ytick.color': '#2C3E50',
     
     # Legend styling
-    'legend.frameon': True,
+    'legend.frameon': False,
     'legend.fancybox': True,
     'legend.shadow': False,
-    'legend.framealpha': 0.9,
-    'legend.edgecolor': '#BDC3C7',
     'legend.borderpad': 0.5
 })
 
@@ -87,6 +82,8 @@ class TemporalStabilityAnalysis:
     """
     Focused analysis class for temporal dynamics and interaction stability
     """
+
+    TIME_STEP_NS = 0.5
     
     def __init__(self, data_dir="data", output_dir="temporal_stability_results"):
         self.data_dir = Path(data_dir)
@@ -96,14 +93,12 @@ class TemporalStabilityAnalysis:
         # Data storage
         self.all_data = {}
         
-        # Publication-ready color palettes
         self.stability_palette = {
-            'Rare': '#E74C3C',      # Vivid red for rare interactions
-            'Transient': '#F39C12',  # Warm amber for transient interactions
-            'Stable': '#27AE60'     # Rich green for stable interactions
+            'Rare': '#D55E00',      # Vermilion (Okabe-Ito)
+            'Transient': '#E69F00',  # Orange (Okabe-Ito)
+            'Stable': '#009E73'     # Bluish Green (Okabe-Ito)
         }
         
-        # Additional publication colors
         self.publication_colors = {
             'primary': '#2C3E50',    # Dark blue-gray for text/lines
             'secondary': '#34495E',  # Lighter blue-gray for accents
@@ -112,12 +107,41 @@ class TemporalStabilityAnalysis:
             'highlight': '#3498DB'   # Blue for highlights
         }
         
-        # Colors for different replicas
-        self.replica_colors = ['#3498DB', '#E74C3C', '#2ECC71', '#F39C12', '#9B59B6', '#E67E22', '#1ABC9C', '#34495E']
+        self.replica_colors = [
+            '#D55E00',  # Vermilion
+            '#0072B2',  # Blue
+            '#009E73',  # Bluish Green
+            '#E69F00',  # Orange
+        ]
         
         print(f"Initialized Temporal & Stability Analysis for data in: {self.data_dir}")
         print(f"Results will be saved to: {self.output_dir}")
-    
+
+    @staticmethod
+    def _smooth_series(series: pd.Series, window_size: int) -> pd.Series:
+        """Apply centered rolling mean when enough points are available."""
+        if len(series) > window_size:
+            return series.rolling(window=window_size, center=True).mean()
+        return series
+
+    @staticmethod
+    def _format_replica_label(replica_name: str) -> str:
+        """Return human-friendly replica label."""
+        if 'replica' in replica_name.lower():
+            nums = re.findall(r'\d+', replica_name)
+            if nums:
+                return f"Replica {nums[0]}"
+        return replica_name.capitalize() if replica_name else replica_name
+
+    def _prioritized_complexes(self) -> List[str]:
+        """Order complexes with 1JPS first, then 1EAW, then any others."""
+        keys = sorted(self.all_data.keys())
+        ordered = []
+        for target in ("1JPS", "1EAW"):
+            ordered.extend([k for k in keys if target in k.upper() and k not in ordered])
+        ordered.extend([k for k in keys if k not in ordered])
+        return ordered
+
     def load_all_data(self):
         """Load all interaction data from all complexes and replicas"""
         print("Loading all interaction data...")
@@ -177,42 +201,39 @@ class TemporalStabilityAnalysis:
 
     def analyze_temporal_dynamics(self):
         """
-        Analyze temporal dynamics with smoothed visualizations - separate plots for each complex
-        Modified to create individual plots for each protein complex system
+        Analyze temporal dynamics with smoothed visualizations - merged 2x2 plot for 1JPS and 1EAW
         """
         print("=" * 80)
-        print("TEMPORAL DYNAMICS ANALYSIS")
+        print("TEMPORAL DYNAMICS ANALYSIS (MERGED)")
         print("=" * 80)
         
-        window_size = 10  # Rolling window for smoothing
+        window_size = 10
         
-        # Analyze each complex separately
-        for complex_idx, (complex_name, complex_data) in enumerate(self.all_data.items()):
-            if not complex_data:
-                continue
-                
-            print(f"Creating temporal dynamics plot for {complex_name}...")
+        plot_complexes = self._prioritized_complexes()[:2]
+        
+        print(f"Generating merged plot for: {', '.join(plot_complexes)}")
+        
+        fig, axes = plt.subplots(2, 2, figsize=(18, 14), sharex=True)
+        
+        legend_handles = []
+        legend_labels = []
+        
+        for row_idx, complex_name in enumerate(plot_complexes):
+            complex_data = self.all_data[complex_name]
+            clean_name = complex_name.replace('_interchain', '')
             
-            # Create separate figure for each complex - simplified 1x2 layout
-            fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-            complex_display_name = complex_name.replace('_interchain', '')
-            fig.suptitle(f'Temporal Dynamics - {complex_display_name}', fontsize=16, fontweight='bold')
+            axes[row_idx, 1].annotate(clean_name, 
+                                    xy=(1.03, 0.5), xytext=(0, 0),
+                                    xycoords='axes fraction', textcoords='offset points',
+                                    size=22, ha='left', va='center', rotation=-90, fontweight='bold')
             
-            # Collect data for this complex
-            complex_interface_stability = []
-            
-            # Process each replica for this complex
             for replica_idx, (replica_name, replica_data) in enumerate(complex_data.items()):
                 if replica_data.empty:
                     continue
                 
                 color = self.replica_colors[replica_idx % len(self.replica_colors)]
                 
-                # 1. Total interactions over time (smoothed)
-                #    Deduplicate duplicate interactions within the same timestep
-                #    (same interaction type between the same residues; A↔B treated as the same pair)
                 dedup_df = replica_data.copy()
-                # Normalize residue pair ordering so (A,B) and (B,A) map to the same key
                 chains_a = dedup_df['chain_a'].astype(str)
                 chains_b = dedup_df['chain_b'].astype(str)
                 resid_a_int = dedup_df['resid_a'].astype(int)
@@ -227,53 +248,80 @@ class TemporalStabilityAnalysis:
                     subset=['time_stamp', 'itype', 'n_chain1', 'n_resid1', 'n_chain2', 'n_resid2']
                 )
                 time_counts = unique_per_ts.groupby('time_stamp').size()
-                if len(time_counts) > window_size:
-                    time_counts_smooth = time_counts.rolling(window=window_size, center=True).mean()
-                else:
-                    time_counts_smooth = time_counts
                 
-                # Plot raw data as background
-                axes[0].plot(time_counts.index, time_counts.values, 
-                              alpha=0.2, linewidth=1, color=color)
-                # Plot smoothed data
-                axes[0].plot(time_counts.index, time_counts_smooth.values, 
-                              label=f"{replica_name}", linewidth=2, alpha=0.8, color=color)
+                time_counts.index = time_counts.index * self.TIME_STEP_NS
+                time_counts_smooth = self._smooth_series(time_counts, window_size)
                 
-                # 2. Interface stability over time
-                #    Count unique interface residues per timestep (deduplicated A↔B pairs do not matter here)
+                ax_total = axes[row_idx, 0]
+                ax_total.plot(time_counts.index, time_counts.values, 
+                              alpha=0.18, linewidth=0.8, color=color)
+                
+                label_clean = self._format_replica_label(replica_name)
+                
+                line, = ax_total.plot(time_counts.index, time_counts_smooth.values, 
+                              label=label_clean, linewidth=2.0, alpha=0.9, color=color)
+                
+                # Collect legend handles from first complex only
+                if row_idx == 0:
+                    legend_handles.append(line)
+                    legend_labels.append(label_clean)
+
+                # --- Plotting Interface Size (Column 1) ---
                 interface_residues = unique_per_ts.groupby('time_stamp').apply(
                     lambda x: len(set(x['n_resid1']).union(set(x['n_resid2']))))
                 
-                if len(interface_residues) > window_size:
-                    interface_smooth = interface_residues.rolling(window=window_size, center=True).mean()
-                else:
-                    interface_smooth = interface_residues
+                interface_residues.index = interface_residues.index * self.TIME_STEP_NS
                 
-                axes[1].plot(interface_residues.index, interface_smooth.values, 
-                              label=f"{replica_name}", linewidth=2, alpha=0.8, color=color)
+                interface_smooth = self._smooth_series(interface_residues, window_size)
                 
-                # Store for complex-specific analysis
-                complex_interface_stability.extend(interface_residues.values)
-            
-            # Style the temporal plots for this complex - simplified 1x2 layout
-            axes[0].set_title(f'Total Interactions Over Time\n(Smoothed, window={window_size})', fontweight='bold')
-            axes[0].set_xlabel('Time Stamp')
-            axes[0].set_ylabel('Number of Interactions')
-            axes[0].legend()
-            axes[0].grid(True, alpha=0.3)
-            
-            axes[1].set_title('Interface Size Stability\n(Number of Interface Residues)', fontweight='bold')
-            axes[1].set_xlabel('Time Stamp')
-            axes[1].set_ylabel('Interface Size')
-            axes[1].legend()
-            axes[1].grid(True, alpha=0.3)
-            
-            # Save separate file for each complex
-            plt.tight_layout()
-            plt.savefig(self.output_dir / f'temporal_dynamics_{complex_name}.png', dpi=300, bbox_inches='tight')
-            plt.show()
-            
-        print(f"✓ Generated separate temporal dynamics plots for each complex system")
+                ax_size = axes[row_idx, 1]
+                ax_size.yaxis.set_major_locator(MaxNLocator(integer=True))
+                
+                ax_size.plot(interface_residues.index, interface_residues.values, 
+                              alpha=0.18, linewidth=0.8, color=color)
+                ax_size.plot(interface_residues.index, interface_smooth.values, 
+                              label=replica_name, linewidth=2.0, alpha=0.9, color=color)
+
+        axes[0, 0].set_title("Total Interactions", fontweight='bold', pad=15)
+        axes[0, 1].set_title("Interface Size", fontweight='bold', pad=15)
+        
+        for ax in axes.flatten():
+            ax.grid(visible=True, axis='y', alpha=0.3, linestyle='-')
+            ax.grid(visible=False, axis='x')
+        
+        axes[0, 0].set_ylabel('Interaction Count')
+        axes[1, 0].set_ylabel('Interaction Count')
+        axes[0, 1].set_ylabel('Residue Count')
+        axes[1, 1].set_ylabel('Residue Count')
+
+        axes[1, 0].set_xlabel('Simulation time (ns)')
+        axes[1, 1].set_xlabel('Simulation time (ns)')
+        
+        panel_labels = ['A', 'B', 'C', 'D']
+        for i, ax in enumerate(axes.flatten()):
+            ax.text(-0.15, 1.05, panel_labels[i], transform=ax.transAxes, 
+                   fontsize=24, fontweight='bold', va='top', ha='right')
+
+        # Unified Legend
+        if legend_handles:
+            fig.legend(handles=legend_handles, labels=legend_labels, 
+                      loc='lower center', bbox_to_anchor=(0.5, 0.02),
+                      ncol=min(len(legend_handles), 4), frameon=False,
+                      fontsize=22)
+
+        plt.subplots_adjust(bottom=0.12, left=0.08, right=0.92, top=0.92, wspace=0.2, hspace=0.1)
+        
+        # Save as SVG (Vector)
+        svg_path = self.output_dir / 'temporal_dynamics_merged.svg'
+        plt.savefig(svg_path, format='svg', bbox_inches='tight')
+        print(f"✓ Saved merged temporal dynamics plot to {svg_path}")
+        
+        # Also save PNG for quick preview/compatibility
+        png_path = self.output_dir / 'temporal_dynamics_merged.png'
+        plt.savefig(png_path, format='png', dpi=300, bbox_inches='tight')
+        
+        # Close figure to free memory
+        plt.close(fig)
 
     def plot_interaction_stability(self):
         """
@@ -282,31 +330,16 @@ class TemporalStabilityAnalysis:
         """
         print("\n🎯 Generating publication-ready interaction stability plot with grouped layout...")
         
-        # Get list of complexes and ensure consistent ordering
-        complex_names = sorted(list(self.all_data.keys()))
-        # Put 1JPS on top (first row) if present
-        complex_names = sorted(complex_names, key=lambda n: 0 if '1JPS' in n.upper() else 1)
-        if len(complex_names) == 0:
-            print("No complexes found for stability analysis")
-            return
+        complex_names = self._prioritized_complexes()
             
         print(f"Creating grouped stability plot for {len(complex_names)} complexes...")
         
-        # Create publication-ready figure with 2x4 layout - increased height for better spacing
-        fig = plt.figure(figsize=(20, 12))
-        gs = GridSpec(2, 4, hspace=0.45, wspace=0.25, 
-                     left=0.06, right=0.94, top=0.85, bottom=0.15)
-        
-        # Enhanced publication title with better positioning
-        fig.suptitle(
-            "Protein-Protein Interface Interaction Stability Analysis",
-            fontsize=18, fontweight='bold', y=0.92
-        )
-        
-        # Global statistics for summary
+        fig = plt.figure(figsize=(24, 14))
+        gs = GridSpec(2, 4, hspace=0.1, wspace=0.1, 
+                     left=0.08, right=0.92, top=0.90, bottom=0.10)
+
         all_complex_stats = {}
         
-        # Plot each complex as a row
         for complex_idx, complex_name in enumerate(complex_names):
             replicas = self.all_data[complex_name]
             if not replicas:
@@ -315,7 +348,6 @@ class TemporalStabilityAnalysis:
             complex_display_name = complex_name.replace('_interchain', '')
             replica_list = sorted(list(replicas.items()))
             
-            # Store stats for this complex
             complex_stats = {
                 'rare_counts': [],
                 'transient_counts': [],
@@ -325,44 +357,35 @@ class TemporalStabilityAnalysis:
                 'median_frequencies': []
             }
             
-            # Track axes and max y for standardizing y-axis within this complex
             row_axes = []
-            row_max_count = 0.0
             
-            # Plot each replica as a column
             for replica_idx, (replica_name, data) in enumerate(replica_list):
-                if replica_idx >= 4:  # Limit to 4 replicas
+                if replica_idx >= 4:
                     break
                     
                 ax = fig.add_subplot(gs[complex_idx, replica_idx])
                 row_axes.append(ax)
                 
                 if data.empty:
-                    ax.text(0.5, 0.5, "No Data\nAvailable", 
-                           ha="center", va="center", fontsize=12, 
+                    ax.text(0.5, 0.5, "No Data", 
+                           ha="center", va="center", fontsize=16, 
                            bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray"))
-                    ax.set_title(f"{complex_display_name}\n{replica_name}", 
-                               fontsize=12, fontweight='bold')
                     continue
 
                 # Calculate interaction frequencies for this replica
                 total_timepoints = data["time_stamp"].nunique()
                 
-                # Remove exact duplicates from raw data before processing
                 data_clean = data.drop_duplicates()
                 
-                # Count UNIQUE timepoints where each pair appears (not total occurrences)
                 pair_timepoint_counts = data_clean.groupby(["resid_a", "resid_b"])["time_stamp"].nunique()
                 frequencies = (pair_timepoint_counts / total_timepoints) * 100
 
-                # Publication-quality histogram with 5% bin width (0,5,...,100)
-                bins = np.arange(0, 105, 5)
+                bins = np.arange(0, 101, 5)
                 counts, bin_edges, patches = ax.hist(
-                    frequencies, bins=bins, alpha=0.8, 
-                    edgecolor='white', linewidth=0.6, density=False
+                    frequencies, bins=bins, alpha=0.9, 
+                    edgecolor='white', linewidth=0.5, density=False
                 )
-
-                # Apply consistent color coding
+                
                 for patch, bin_start, bin_end in zip(patches, bin_edges[:-1], bin_edges[1:]):
                     bin_center = (bin_start + bin_end) / 2
                     if bin_center < 5:
@@ -372,21 +395,14 @@ class TemporalStabilityAnalysis:
                     else:
                         patch.set_facecolor(self.stability_palette['Stable'])
                 
-                # Track max count for y-axis standardization within this complex
-                if len(counts) > 0:
-                    row_max_count = max(row_max_count, float(counts.max()))
-
-                # Add reference lines with publication styling
-                ax.axvline(5, color="#34495E", linestyle="--", alpha=0.7, linewidth=1.5)
-                ax.axvline(50, color="#34495E", linestyle="--", alpha=0.7, linewidth=1.5)
+                ax.axvline(5, color="#34495E", linestyle="--", alpha=0.6, linewidth=1.5)
+                ax.axvline(50, color="#34495E", linestyle="--", alpha=0.6, linewidth=1.5)
                 
-                # Calculate statistics
                 rare_count = (frequencies < 5).sum()
                 transient_count = ((frequencies >= 5) & (frequencies <= 50)).sum()
                 stable_count = (frequencies > 50).sum()
                 total_pairs = len(frequencies)
 
-                # Store stats for complex summary
                 complex_stats['rare_counts'].append(rare_count)
                 complex_stats['transient_counts'].append(transient_count)
                 complex_stats['stable_counts'].append(stable_count)
@@ -394,77 +410,69 @@ class TemporalStabilityAnalysis:
                 complex_stats['mean_frequencies'].append(frequencies.mean())
                 complex_stats['median_frequencies'].append(frequencies.median())
 
-                # Enhanced titles with complex and replica information
-                ax.set_title(f"{complex_display_name}\n{replica_name}", 
-                           fontsize=11, fontweight='bold', pad=8)
+                if complex_idx == 0:
+                    label_clean = self._format_replica_label(replica_name)
+                    ax.set_title(label_clean, fontsize=26, fontweight='bold', pad=15)
                 
-                # Only add x-label to bottom row
-                if complex_idx == len(complex_names) - 1:
-                    ax.set_xlabel("Interaction Frequency (%)", fontsize=11)
+                if replica_idx == 3:
+                    ax.annotate(complex_display_name, 
+                               xy=(1.05, 0.5), xytext=(0, 0),
+                               xycoords='axes fraction', textcoords='offset points',
+                               size=24, ha='left', va='center', rotation=-90, fontweight='bold')
+
+                if complex_idx != len(complex_names) - 1:
+                    ax.set_xticklabels([])
                     
-                # Only add y-label to leftmost column
-                if replica_idx == 0:
-                    ax.set_ylabel("Count", fontsize=11)
+                if replica_idx != 0:
+                    ax.set_yticklabels([])
                 
-                # Compact statistical annotation
                 stats_text = f"n={total_pairs:,}\nμ={frequencies.mean():.1f}%"
                 props = dict(boxstyle='round,pad=0.25', facecolor='white', alpha=0.85, edgecolor='gray', linewidth=0.5)
-                ax.text(0.97, 0.95, stats_text, transform=ax.transAxes, fontsize=8,
+                ax.text(0.97, 0.95, stats_text, transform=ax.transAxes, fontsize=18,
                        verticalalignment='top', horizontalalignment='right', bbox=props)
                 
-                # Minimal grid for publication
                 ax.grid(True, alpha=0.2, linestyle='-', linewidth=0.5)
                 ax.set_xlim(0, 100)
                 
-                # y-axis limits will be standardized across replicas for this complex below
-            
-            # Standardize y-axis across replicas for this complex (row)
-            uniform_ylim_max = (row_max_count * 1.1) if row_max_count > 0 else 1
+            uniform_ylim_max = 30
             for row_ax in row_axes:
                 row_ax.set_ylim(0, uniform_ylim_max)
-                # Ensure y-axis uses integer ticks for counts
                 row_ax.yaxis.set_major_locator(MaxNLocator(integer=True))
             
-            # Store complex stats for summary
             all_complex_stats[complex_name] = complex_stats
         
-        # Create publication-quality legend
         legend_elements = [
             Patch(facecolor=self.stability_palette['Rare'], 
-                  label="Rare Interactions (<5%)", alpha=0.8),
+                  label="Rare Interactions (<5%)", alpha=0.9),
             Patch(facecolor=self.stability_palette['Transient'], 
-                  label="Transient Interactions (5-50%)", alpha=0.8),
+                  label="Transient Interactions (5-50%)", alpha=0.9),
             Patch(facecolor=self.stability_palette['Stable'], 
-                  label="Stable Interactions (>50%)", alpha=0.8),
+                  label="Stable Interactions (>50%)", alpha=0.9),
         ]
         
-        # Position legend below the plots with proper spacing
         fig.legend(handles=legend_elements, 
                   loc='lower center', 
-                  bbox_to_anchor=(0.5, 0.05),
+                  bbox_to_anchor=(0.5, -0.035),
                   ncol=3, 
-                  frameon=True, 
-                  fancybox=True, 
-                  shadow=True,
-                  fontsize=12)
+                  frameon=False, 
+                  fontsize=22)
         
-        # Add axis labels with better positioning
-        fig.text(0.02, 0.5, 'Interaction Count', rotation=90, ha='center', va='center', fontsize=14, fontweight='bold')
-        fig.text(0.5, 0.10, 'Interaction Frequency (%)', ha='center', va='center', fontsize=14, fontweight='bold')
+        fig.text(0.05, 0.5, 'Interaction Count', rotation=90, ha='center', va='center', fontsize=22)
+        fig.text(0.5, 0.045, 'Interaction Frequency (%)', ha='center', va='center', fontsize=22)
         
-        # Apply tight layout with proper margins for the new spacing
-        plt.tight_layout(rect=[0.04, 0.12, 0.96, 0.90])
+        fig.text(0.02, 0.90, 'A', fontsize=28, fontweight='bold', ha='left', va='top')
+        fig.text(0.02, 0.50, 'B', fontsize=28, fontweight='bold', ha='left', va='top')
+
+        plt.tight_layout(rect=[0.08, 0.15, 0.92, 0.95])
         
-        # Save high-quality publication figure
         plt.savefig(self.output_dir / 'interaction_stability_2x4_grid.png', 
                    dpi=300, bbox_inches='tight', facecolor='white', 
                    format='png')
         
-        # Also save as vector format for publications
-        plt.savefig(self.output_dir / 'interaction_stability_2x4_grid.pdf', 
-                   bbox_inches='tight', facecolor='white', format='pdf')
+        plt.savefig(self.output_dir / 'interaction_stability_2x4_grid.svg', 
+                   bbox_inches='tight', facecolor='white', format='svg')
         
-        plt.show()
+        plt.close(fig)
         
         # Print summary statistics
         print(f"\n📊 PUBLICATION SUMMARY:")
@@ -483,30 +491,24 @@ class TemporalStabilityAnalysis:
                 print(f"  Mean frequency: {np.mean(stats['mean_frequencies']):.1f}% ± {np.std(stats['mean_frequencies']):.1f}%")
         
         print(f"\n✅ Generated publication-ready grouped stability plot (2×4 grid)")
-        print(f"📁 Saved as PNG (raster) and PDF (vector) formats")
+        print(f"📁 Saved as PNG (raster) and SVG (vector) formats")
         
         return all_complex_stats  # Return stats for potential cross-complex analysis
 
     def plot_cross_complex_comparison(self, complex_stats=None):
-        """
-        Generate a cross-complex comparison plot for publication showing statistical comparisons.
-        """
         if complex_stats is None:
             print("No statistics provided. Run plot_interaction_stability first.")
             return
             
         print("\n📊 Generating cross-complex comparison plot...")
         
-        # Create publication-quality comparison figure
         fig, axes = plt.subplots(2, 2, figsize=(16, 12))
         fig.suptitle("Cross-Complex Interaction Stability Comparison", 
                     fontsize=18, fontweight='bold', y=0.95)
         
-        # Prepare data for comparison
         complex_names = list(complex_stats.keys())
         display_names = [name.replace('_interchain', '') for name in complex_names]
         
-        # 1. Stability category proportions
         ax1 = axes[0, 0]
         rare_props = []
         transient_props = []
@@ -524,7 +526,6 @@ class TemporalStabilityAnalysis:
                 transient_props.append(transient_prop)
                 stable_props.append(stable_prop)
         
-        # Stacked bar plot
         width = 0.6
         x_pos = np.arange(len(display_names))
         
@@ -544,9 +545,8 @@ class TemporalStabilityAnalysis:
         ax1.legend(loc='upper right')
         ax1.grid(True, alpha=0.3, axis='y')
         
-        # Add percentage labels on bars
         for i, (rare, trans, stable) in enumerate(zip(rare_props, transient_props, stable_props)):
-            if rare > 5:  # Only show if segment is large enough
+            if rare > 5:
                 ax1.text(i, rare/2, f'{rare:.1f}%', ha='center', va='center', 
                         fontsize=10, fontweight='bold', color='white')
             if trans > 5:
@@ -556,7 +556,6 @@ class TemporalStabilityAnalysis:
                 ax1.text(i, rare + trans + stable/2, f'{stable:.1f}%', ha='center', va='center', 
                         fontsize=10, fontweight='bold', color='white')
         
-        # 2. Mean frequency comparison with error bars
         ax2 = axes[0, 1]
         mean_freqs = []
         std_freqs = []
@@ -578,12 +577,10 @@ class TemporalStabilityAnalysis:
         ax2.set_xticklabels(display_names)
         ax2.grid(True, alpha=0.3, axis='y')
         
-        # Add value labels on bars
         for i, (mean, std) in enumerate(zip(mean_freqs, std_freqs)):
             ax2.text(i, mean + std + 1, f'{mean:.1f}±{std:.1f}%', 
                     ha='center', va='bottom', fontsize=10, fontweight='bold')
         
-        # 3. Total interaction pairs comparison
         ax3 = axes[1, 0]
         total_pairs_per_complex = []
         
@@ -602,16 +599,13 @@ class TemporalStabilityAnalysis:
         ax3.set_xticklabels(display_names)
         ax3.grid(True, alpha=0.3, axis='y')
         
-        # Add value labels on bars
         for i, total in enumerate(total_pairs_per_complex):
             ax3.text(i, total + max(total_pairs_per_complex) * 0.01, f'{total:,}', 
                     ha='center', va='bottom', fontsize=10, fontweight='bold')
         
-        # 4. Statistical summary text
         ax4 = axes[1, 1]
         ax4.axis('off')
         
-        # Create summary statistics text
         summary_text = []
         summary_text.append("CROSS-COMPLEX STATISTICAL SUMMARY")
         summary_text.append("=" * 40)
@@ -637,11 +631,9 @@ class TemporalStabilityAnalysis:
                 summary_text.append(f"  Stability: {rare_prop:.1f}% rare, {transient_prop:.1f}% transient, {stable_prop:.1f}% stable")
                 summary_text.append("")
         
-        # Statistical comparison
         if len(mean_freqs) == 2:
             from scipy import stats
             try:
-                # Perform statistical test if scipy is available
                 t_stat, p_value = stats.ttest_ind(
                     complex_stats[complex_names[0]]['mean_frequencies'],
                     complex_stats[complex_names[1]]['mean_frequencies']
