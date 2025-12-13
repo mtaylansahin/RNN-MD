@@ -24,14 +24,14 @@ class HeatmapPlotter(BasePlotter):
         self,
         processed_data: ProcessedData,
         num_pairs_to_show: int = 50,
-        valid_steps_to_show: int = 20
+        valid_steps_to_show: int = 20  # Kept for compatibility but might be ignored if showing full history
     ) -> List[str]:
         """Generate all heatmap plots.
         
         Args:
             processed_data: Processed analysis data
             num_pairs_to_show: Number of pairs to show in heatmaps
-            valid_steps_to_show: Number of validation steps to show
+            valid_steps_to_show: Number of validation steps to show (deprecated if showing full history)
             
         Returns:
             List of generated plot file paths
@@ -43,9 +43,9 @@ class HeatmapPlotter(BasePlotter):
             heatmap_path = self.plot_time_vs_pair_heatmaps(
                 processed_data.ground_truth_full,
                 processed_data.predictions_full,
+                processed_data.train_set_processed,
                 processed_data.valid_set_processed,
-                num_pairs_to_show,
-                valid_steps_to_show
+                num_pairs_to_show
             )
             generated_plots.append(heatmap_path)
             
@@ -60,35 +60,35 @@ class HeatmapPlotter(BasePlotter):
         self,
         gt_full: pd.DataFrame,
         pred_full: pd.DataFrame,
-        valid_set_post: pd.DataFrame,
-        num_pairs_to_show: int = 50,
-        valid_steps_to_show: int = 20
+        train_set: pd.DataFrame,
+        valid_set: pd.DataFrame,
+        num_pairs_to_show: int = 50
     ) -> str:
         """Plot vertically stacked heatmaps of GT, Predictions, and Overlay.
         
         Args:
             gt_full: Ground truth full interaction grid
             pred_full: Predictions full interaction grid
-            valid_set_post: Validation set data
+            train_set: Training set data
+            valid_set: Validation set data
             num_pairs_to_show: Number of pairs to display
-            valid_steps_to_show: Number of validation steps to show
             
         Returns:
             Path to saved plot
         """
-        self.logger.info("Generating time vs pair heatmaps")
+        self.logger.info("Generating time vs pair heatmaps with full history")
         
         # Apply publication style
         plt.rcParams.update({
             'font.family': 'sans-serif',
             'font.sans-serif': ['Arial', 'DejaVu Sans', 'Liberation Sans', 'sans-serif'],
-            'font.size': 20,
-            'axes.titlesize': 26,
-            'axes.labelsize': 22,
-            'xtick.labelsize': 20,
-            'ytick.labelsize': 20,
-            'legend.fontsize': 22,
-            'figure.titlesize': 32,
+            'font.size': 14, # Reduced base font size
+            'axes.titlesize': 20, # Reduced title size
+            'axes.labelsize': 16, # Reduced label size
+            'xtick.labelsize': 14,
+            'ytick.labelsize': 14,
+            'legend.fontsize': 14,
+            'figure.titlesize': 24, # Reduced figure title size
             'axes.spines.top': False,
             'axes.spines.right': False,
             'axes.spines.left': True,
@@ -104,7 +104,8 @@ class HeatmapPlotter(BasePlotter):
             'sky_blue': '#56B4E9',
             'white': '#FFFFFF',
             'light_gray': '#F0F0F0',
-            'dark_gray': '#2C3E50'
+            'dark_gray': '#2C3E50',
+            'neutral_gray': '#999999' # For history
         }
         
         # Process test data
@@ -138,142 +139,231 @@ class HeatmapPlotter(BasePlotter):
             gt_pivot_test = gt_pivot_test.sort_index()
             pred_pivot_test = pred_pivot_test.loc[gt_pivot_test.index]
         
-        # Create overlay matrix
+        # Create overlay matrix for test
         overlay_matrix_test = pd.DataFrame(0, index=gt_pivot_test.index, columns=gt_pivot_test.columns)
         overlay_matrix_test[(gt_pivot_test == 1) & (pred_pivot_test == 0)] = 1  # FN
         overlay_matrix_test[(gt_pivot_test == 0) & (pred_pivot_test == 1)] = 2  # FP
         overlay_matrix_test[(gt_pivot_test == 1) & (pred_pivot_test == 1)] = 3  # TP
         
-        # Process validation data
-        valid_pivot = pd.DataFrame()
-        last_valid_timestamps = []
+        # Process History (Train + Valid)
+        history_pivot = pd.DataFrame()
         
-        if not valid_set_post.empty and valid_steps_to_show > 0:
-            all_valid_timestamps = sorted(valid_set_post['time_stamp'].unique())
-            if len(all_valid_timestamps) >= valid_steps_to_show:
-                last_valid_timestamps = all_valid_timestamps[-valid_steps_to_show:]
-                valid_data_filtered = valid_set_post[
-                    (valid_set_post['time_stamp'].isin(last_valid_timestamps)) &
-                    (valid_set_post['pair'].isin(selected_pairs))
-                ]
-                
-                if not valid_data_filtered.empty:
-                    valid_data_filtered = valid_data_filtered.assign(present=1)
-                    valid_pivot = valid_data_filtered.pivot_table(
-                        index='pair', columns='time_stamp', values='present', fill_value=0
-                    )
-                    valid_pivot = valid_pivot.reindex(gt_pivot_test.index, fill_value=0)
-                    valid_pivot = valid_pivot.reindex(sorted(valid_pivot.columns), axis=1)
+        # Combine train and valid
+        history_dfs = []
+        if not train_set.empty:
+            history_dfs.append(train_set)
+        if not valid_set.empty:
+            history_dfs.append(valid_set)
+            
+        if history_dfs:
+            combined_history = pd.concat(history_dfs)
+            # Filter for selected pairs
+            combined_history = combined_history[combined_history['pair'].isin(selected_pairs)].copy()
+            
+            if not combined_history.empty:
+                combined_history['present'] = 1
+                history_pivot = combined_history.pivot_table(
+                    index='pair', columns='time_stamp', values='present', fill_value=0
+                )
+                # Align index with test data
+                history_pivot = history_pivot.reindex(gt_pivot_test.index, fill_value=0)
+                # Sort columns (time)
+                history_pivot = history_pivot.reindex(sorted(history_pivot.columns), axis=1)
         
         # Combine data
-        if not valid_pivot.empty:
-            gt_combined = pd.concat([valid_pivot, gt_pivot_test], axis=1)
-            pred_combined = pd.concat([valid_pivot, pred_pivot_test], axis=1)
-            overlay_valid_part = valid_pivot.replace({0: 0, 1: 3})
-            overlay_combined = pd.concat([overlay_valid_part, overlay_matrix_test], axis=1)
-            valid_data_offset = len(last_valid_timestamps)
+        if not history_pivot.empty:
+            # History + Test GT
+            gt_combined = pd.concat([history_pivot, gt_pivot_test], axis=1)
+            # History + Test Preds (History is effectively GT here too as we don't plot predictions for it)
+            pred_combined = pd.concat([history_pivot, pred_pivot_test], axis=1)
+            
+            # For overlay: History is shown as neutral (let's map it to 0 for now and use a different cmap, 
+            # or map it to a specific value like 4 and handle it)
+            # Actually easiest is to just treat it as "History" type
+            # But the user wants history on the left for all plots.
+            
+            # Let's map history 1s to a specific value for the overlay plot if we want to color them differently
+            # For the overlay plot, we want history to be "Neutral".
+            # Let's use value 4 for "History Interaction"
+            history_overlay = history_pivot.replace({0: 0, 1: 4}) # 4 = History Present
+            
+            overlay_combined = pd.concat([history_overlay, overlay_matrix_test], axis=1)
+            history_offset = history_pivot.shape[1]
         else:
             gt_combined = gt_pivot_test
             pred_combined = pred_pivot_test
             overlay_combined = overlay_matrix_test
-            valid_data_offset = 0
+            history_offset = 0
+            
+        # Define Colors
         
-        # Define colors using Okabe-Ito palette
-        # TN = White/LightGray, FN = Vermilion, FP = Orange, TP = BluishGreen
+        # History Color: Neutral Gray
+        neutral_gray = okabe_ito['neutral_gray']
         
-        # Ground Truth: 0=White, 1=Blue
-        cmap_gt = mcolors.ListedColormap([okabe_ito['light_gray'], okabe_ito['blue']])
+        # GT/Pred maps need to handle the "History" part if we want it to look the same
+        # Actually, for GT and Pred plots, we can just use the standard colors, 
+        # but maybe the user wants history to look "neutral" in ALL plots?
+        # "Left side to show the full length... in a neutral color" implies all plots.
         
-        # Predictions: 0=White, 1=SkyBlue
-        cmap_pred = mcolors.ListedColormap([okabe_ito['light_gray'], okabe_ito['sky_blue']])
+        # So we need custom color mapping for History part in all plots.
+        # This is tricky with simple sns.heatmap unless we change values.
         
-        # Overlay: 0=TN(LightGray), 1=FN(Vermilion), 2=FP(Orange), 3=TP(BluishGreen)
+        # Strategy: Create a masking array or use RGB array. 
+        # Or simpler: Change values in gt_combined/pred_combined for history columns to 2, 
+        # and update colormap to have 3 colors: [Background, Test-Active, History-Active]
+        
+        if history_offset > 0:
+            # Update history parts to value 0.5 (between 0 and 1) or 2
+            # Let's use 2 for History Active
+            gt_combined.iloc[:, :history_offset] = gt_combined.iloc[:, :history_offset].replace({1: 2})
+            pred_combined.iloc[:, :history_offset] = pred_combined.iloc[:, :history_offset].replace({1: 2})
+            
+        # Ground Truth Map: 0=Bg, 1=Blue(Test), 2=Neutral(History)
+        cmap_gt = mcolors.ListedColormap([
+            okabe_ito['light_gray'], # 0
+            okabe_ito['blue'],       # 1
+            neutral_gray             # 2
+        ])
+        
+        # Prediction Map: 0=Bg, 1=SkyBlue(Test), 2=Neutral(History)
+        cmap_pred = mcolors.ListedColormap([
+            okabe_ito['light_gray'], # 0
+            okabe_ito['sky_blue'],   # 1
+            neutral_gray             # 2
+        ])
+        
+        # Overlay Map: 0=TN, 1=FN, 2=FP, 3=TP, 4=History(Neutral)
         cmap_overlay = mcolors.ListedColormap([
-            okabe_ito['light_gray'],  # TN
-            okabe_ito['vermilion'],   # FN
-            okabe_ito['orange'],      # FP
-            okabe_ito['bluish_green'] # TP
+            okabe_ito['light_gray'],  # 0: TN
+            okabe_ito['orange'],      # 1: FN 
+            okabe_ito['vermilion'],   # 2: FP
+            okabe_ito['bluish_green'],# 3: TP
+            neutral_gray              # 4: History
         ])
         
         overlay_labels = [
-            'TN (Correct Negative)', 'FN (Missed)', 
-            'FP (False Positive)', 'TP (Correct Positive)'
+            'TN', 'FN', 'FP', 'TP', 'History'
         ]
         
         # Create figure
-        fig_height = max(12, len(gt_combined.index) * 0.6)
-        fig_width = max(15, gt_combined.shape[1] * 0.25)
-        fig, axes = plt.subplots(3, 1, figsize=(fig_width, fig_height), sharex=False, sharey=True)
+        # Adjusted height for wider cells (more square-like)
+        # Assuming ~300 time points and ~50 pairs, we need aspect ratio ~6:1
+        # Increase width relative to height
+        num_cols = gt_combined.shape[1]
+        num_rows = len(gt_combined.index)
         
-        common_heatmap_kws = {"linewidths": 0.1, "linecolor": 'white'} # changed to white for cleaner look
+        # Calculate aspect ratio to make cells approximately square
+        # We want width/height approx proportional to num_cols/num_rows
+        # Base scale factor
+        scale = 0.4
+        # To make cells square: fig_width / num_cols ≈ fig_height / num_rows
+        # fig_height = num_rows * scale
+        # fig_width = num_cols * scale
+        
+        fig_height = max(12, num_rows * scale)
+        fig_width = max(20, num_cols * scale) # Use same scale for width to get square-ish cells
+        
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+        
+        # Increased font sizes - boosted by another 50%
+        plt.rcParams.update({
+            'font.size': 40,
+            'axes.titlesize': 54,
+            'axes.labelsize': 50,
+            'xtick.labelsize': 40,
+            'ytick.labelsize': 27, # Kept same as requested (but calculation below controls Y labels)
+            'legend.fontsize': 40,
+        })
+        
+        common_heatmap_kws = {"linewidths": 0.05, "linecolor": 'white', "square": False} # Set square=False to allow manual aspect adjustment if needed, but fig size helps
         current_yticklabels = gt_combined.index
         
-        # Plot Ground Truth
-        sns.heatmap(
-            gt_combined, ax=axes[0], cmap=cmap_gt, cbar=False,
-            yticklabels=current_yticklabels, **common_heatmap_kws
-        )
-        axes[0].set_title('Ground Truth (Last Validation + Test)', fontweight='bold')
-        axes[0].set_ylabel('Residue Pair', fontweight='bold')
-        axes[0].set_xlabel('')
-        
-        # Plot Predictions
-        sns.heatmap(
-            pred_combined.fillna(0).astype(int), ax=axes[1], cmap=cmap_pred,
-            vmin=0, vmax=1, cbar=False, yticklabels=current_yticklabels, **common_heatmap_kws
-        )
-        axes[1].set_title('Predictions (Validation GT + Test Predictions)', fontweight='bold')
-        axes[1].set_ylabel('Residue Pair', fontweight='bold')
-        axes[1].set_xlabel('')
-        
         # Plot Overlay
-        bounds_overlay = [0, 1, 2, 3, 4]
+        bounds_overlay = [0, 1, 2, 3, 4, 5]
         norm_overlay = mcolors.BoundaryNorm(bounds_overlay, cmap_overlay.N)
         
         cax = sns.heatmap(
-            overlay_combined.fillna(0).astype(int), ax=axes[2], cmap=cmap_overlay,
+            overlay_combined.fillna(0).astype(int), ax=ax, cmap=cmap_overlay,
             norm=norm_overlay, cbar=True, yticklabels=current_yticklabels,
-            **common_heatmap_kws, cbar_kws={"ticks": [0.5, 1.5, 2.5, 3.5], "label": "Result Type"}
+            **common_heatmap_kws, cbar_kws={"ticks": [0.5, 1.5, 2.5, 3.5, 4.5], "label": "Result Type", "pad": 0.02}
         )
-        axes[2].set_title('Overlay (Validation TN/TP + Test Result)', fontweight='bold')
-        axes[2].set_xlabel('Time Stamp', fontweight='bold')
-        axes[2].set_ylabel('Residue Pair', fontweight='bold')
+        
+        # Remove title
+        ax.set_title('') 
+        
+        # Labels moved down with labelpad, removed bold weight
+        ax.set_xlabel('Simulation time (ns)', fontsize=50, labelpad=60)
+        ax.set_ylabel('Residue Pair', fontsize=50)
         
         # Set colorbar labels
         colorbar = cax.collections[0].colorbar
         colorbar.set_ticklabels(overlay_labels)
-        colorbar.ax.tick_params(labelsize=18)
+        colorbar.ax.tick_params(labelsize=45)
+        colorbar.set_label("Result Type", fontsize=50)
         
-        # Adjust font sizes
+        # Adjust font sizes for Y axis (Residue Pairs)
         num_labels = len(current_yticklabels)
-        font_size = max(8, min(16, int((fig_height / num_labels) * 72 * 0.35))) if num_labels > 0 else 10
+        # Kept same as requested
+        font_size = max(15, min(27, int((fig_height / num_labels) * 72 * 0.45))) if num_labels > 0 else 21
         
-        for ax in axes:
-            ax.tick_params(axis='y', labelsize=font_size)
-            ax.tick_params(axis='x', labelsize=16)
+        ax.tick_params(axis='y', labelsize=font_size)
         
-        # Add vertical separator if validation data included
-        if valid_data_offset > 0:
-            for ax in axes:
-                ax.axvline(x=valid_data_offset, color=okabe_ito['dark_gray'], linestyle='--', linewidth=2)
-                ax.text(
-                    valid_data_offset / 2., ax.get_ylim()[0] * 1.02, 'Validation',
-                    ha='center', va='bottom', color=okabe_ito['vermilion'], fontsize=18, weight='bold'
-                )
-                ax.text(
-                    valid_data_offset + (gt_combined.shape[1] - valid_data_offset) / 2.,
-                    ax.get_ylim()[0] * 1.02, 'Test',
-                    ha='center', va='bottom', color=okabe_ito['dark_gray'], fontsize=18, weight='bold'
-                )
+        # Handle X-axis Ticks (Convert to ns)
+        # 1 timestep = 0.5 ns
+        # We want ticks every 5 ns
+        # 5 ns = 10 timesteps (since 10 * 0.5 = 5.0)
+        timestamps = gt_combined.columns
         
-        fig.suptitle(
-            f'Interaction Dynamics: Validation History vs Test Prediction{plot_title_suffix}',
-            fontsize=32, fontweight='bold', y=0.995
-        )
-        plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+        # Create formatter for x-axis
+        def time_formatter(x, pos):
+            try:
+                idx = int(x)
+                if 0 <= idx < len(timestamps):
+                    ts = timestamps[idx]
+                    return f"{ts * 0.5:.0f}" # Convert to ns, no decimals for cleaner look
+                return ""
+            except:
+                return ""
+                
+        # Set ticks explicitly every 10 indices (which is 5ns)
+        from matplotlib.ticker import FuncFormatter, MultipleLocator
+        ax.xaxis.set_major_formatter(FuncFormatter(time_formatter))
+        # Use MultipleLocator(10) to place a tick every 10 data points (timesteps)
+        # This corresponds to exactly 5ns intervals
+        ax.xaxis.set_major_locator(MultipleLocator(10)) 
+        ax.tick_params(axis='x', labelsize=45, rotation=0)
+
+        # Add vertical separator for History vs Test
+        if history_offset > 0:
+            ax.axvline(x=history_offset, color=okabe_ito['dark_gray'], linestyle='--', linewidth=3)
+            
+            # Add text labels - moved down (approx 1.05 * ylim[0])
+            # Note: ylim[0] is usually the bottom (max index) for heatmaps. 
+            # Check orientation: if origin is upper, ylim is (bottom, top) = (max_y, 0).
+            # So ylim[0] is the bottom edge.
+            
+            label_y_pos = ax.get_ylim()[0] * 1.05
+            
+            # History Label
+            ax.text(
+                history_offset / 2., label_y_pos, 'History (Train+Val)',
+                ha='center', va='top', color=okabe_ito['dark_gray'], fontsize=45
+            )
+            
+            # Test Label
+            ax.text(
+                history_offset + (gt_combined.shape[1] - history_offset) / 2.,
+                label_y_pos, 'Test',
+                ha='center', va='top', color=okabe_ito['dark_gray'], fontsize=45
+            )
+        
+        # Remove suptitle as well
+        # fig.suptitle(...) 
+        
+        plt.tight_layout()
         
         # Save and close
-        filename = 'heatmap_time_vs_pairs_VERTICAL_with_valid.png'
+        filename = 'heatmap_time_vs_pairs_VERTICAL_full_history.png'
         plot_path = self.save_plot(filename, fig)
         
         # Also save SVG

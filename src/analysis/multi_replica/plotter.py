@@ -11,6 +11,7 @@ from matplotlib.patches import Patch
 import numpy as np
 from typing import List, Dict, Optional, Tuple, Any
 import os
+import math
 
 # Set numpy seed for reproducible jitter
 np.random.seed(42)
@@ -40,7 +41,7 @@ class MultiReplicaPlotter:
             'font.sans-serif': ['Arial', 'DejaVu Sans', 'Liberation Sans', 'sans-serif'],
             'font.size': 20,
             'axes.titlesize': 26,
-            'axes.labelsize': 22,
+            'axes.labelsize': 26,
             'xtick.labelsize': 20,
             'ytick.labelsize': 20,
             'legend.fontsize': 22,
@@ -107,7 +108,7 @@ class MultiReplicaPlotter:
         # Metric Colors mapped to Okabe-Ito
         self.colors = {
             'recall': self.okabe_ito['blue'],            # #0072B2
-            'precision': self.okabe_ito['reddish_purple'],# #CC79A7
+            'precision': self.okabe_ito['orange'],       # #E69F00
             'f1': self.okabe_ito['vermilion'],           # #D55E00
             'mcc': self.okabe_ito['sky_blue'],           # #56B4E9
             'mean_pairwise_f1': self.okabe_ito['bluish_green'], # #009E73
@@ -115,6 +116,25 @@ class MultiReplicaPlotter:
             'baseline_mean_pairwise_f1': '#7A9E7E'
         }
     
+    def _format_std(self, value: float) -> str:
+        """Format standard deviation to up to 2 significant digits."""
+        if value == 0:
+            return "0.00"
+        
+        # Use %.2g for 2 significant digits
+        s = f"{value:.2g}"
+        
+        # Ensure it doesn't look like scientific notation if it's just a small number like 0.001
+        if 'e' in s:
+            # If scientific notation, check if we can represent it reasonably in fixed point
+            # For plot labels, we probably don't want 1e-5. 
+            # If it's that small, it's effectively 0.00 for the scale of 0-1 metrics.
+            if abs(value) < 0.001:
+                return "0.00"
+            return f"{value:.3f}" # Fallback
+            
+        return s
+
     def generate_all_plots(self, aggregated_metrics: AggregatedMetrics) -> List[str]:
         """Generate all multi-replica plots.
         
@@ -153,15 +173,6 @@ class MultiReplicaPlotter:
             )
             if test_plot:
                 generated_plots.append(test_plot)
-            
-            # Comparison plot showing training vs test frequency
-            comparison_plot = self.plot_training_vs_test_comparison(aggregated_metrics)
-            if comparison_plot:
-                generated_plots.append(comparison_plot)
-            
-            # Individual metric plots with detailed error bars
-            individual_plots = self.plot_individual_metrics(aggregated_metrics)
-            generated_plots.extend(individual_plots)
             
             self.logger.info(f"Generated {len(generated_plots)} multi-replica plots")
             
@@ -289,26 +300,28 @@ class MultiReplicaPlotter:
             # Add value labels on bars
             for i, (bar, mean, std) in enumerate(zip(bars_model, model_means, model_stds)):
                 height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.01,
-                        f'{mean:.3f}', ha='center', va='bottom', 
+                ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.02,
+                        f'{mean:.2f}', ha='center', va='bottom', 
                         fontweight='bold', fontsize=12)
             if baseline_available and bars_baseline is not None:
                 for i, (bar, mean, std) in enumerate(zip(bars_baseline, baseline_means, baseline_stds)):
                     height = bar.get_height()
-                    ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.01,
-                            f'{mean:.3f}', ha='center', va='bottom', 
+                    ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.02,
+                            f'{mean:.2f}', ha='center', va='bottom', 
                             fontweight='bold', fontsize=12, color='#2C3E50')
             
             # Styling
-            ax.set_ylabel('Score', fontweight='bold')
+            ax.set_ylabel('Score', fontsize=26, fontweight='bold')
             # Remove redundant X label if metrics are clear
             # ax.set_xlabel('Metrics', fontweight='bold') 
             
-            title_suffix = f'Across {overall.n_replicas} Replicas'
-            ax.set_title(f'Overall Performance {title_suffix}', fontweight='bold', pad=20)
+            # Removed title as requested
+            # title_suffix = f'Across {overall.n_replicas} Replicas'
+            # ax.set_title(f'Overall Performance {title_suffix}', fontweight='bold', pad=20)
+            
             ax.set_xticks(x_pos)
             ax.set_xticklabels(metric_labels)
-            ax.set_ylim(0, 1.0)
+            ax.set_ylim(0, 1.1) # Increased ylim to accommodate taller labels
             
             # Grid - horizontal only
             ax.grid(visible=True, axis='y', alpha=0.2)
@@ -326,14 +339,17 @@ class MultiReplicaPlotter:
             if baseline_available:
                 # Unified Legend
                 handles = [
-                    Patch(facecolor='gray', edgecolor='none', alpha=0.5, label='Model'),
-                    Patch(facecolor='gray', edgecolor='none', hatch='//', alpha=0.5, label='Baseline')
+                    Patch(facecolor='gray', edgecolor='none', alpha=0.55, label='Model'),
+                    Patch(facecolor='#7A9E7E', edgecolor='white', hatch='//', alpha=0.55, label='Baseline')
                 ]
                 fig.legend(handles=handles, loc='lower center', 
                           bbox_to_anchor=(0.5, 0.02), ncol=2, frameon=False)
                 plt.subplots_adjust(bottom=0.15)
             
             plt.tight_layout()
+            # Add space for bottom legend if present
+            if handles:
+                plt.subplots_adjust(bottom=0.18)
             if baseline_available:
                  plt.subplots_adjust(bottom=0.15) # Adjust again after tight_layout
             
@@ -438,7 +454,16 @@ class MultiReplicaPlotter:
                 
                 # Create bars with error bars
                 x_offset = x_pos + (i - n_metrics/2) * bar_width
-                bars = ax.bar(x_offset, means, bar_width, yerr=stds, capsize=3,
+                # Use baseline styling for baseline_f1 to match overall plot
+                if metric == 'baseline_f1':
+                    bars = ax.bar(x_offset, means, bar_width, yerr=stds, capsize=3,
+                                 label=label, color='#7A9E7E', 
+                                 alpha=0.55, edgecolor='white', linewidth=1)
+                    # Apply hatch pattern to match overall plot baseline style
+                    for rect in bars:
+                        rect.set_hatch('//')
+                else:
+                    bars = ax.bar(x_offset, means, bar_width, yerr=stds, capsize=3,
                              label=label, color=self.colors.get(metric, f'C{i}'), 
                              alpha=0.8, edgecolor='white', linewidth=0.5)
                 
@@ -453,7 +478,7 @@ class MultiReplicaPlotter:
                                 jitter = np.random.normal(0, 0.02, len(baseline_f1_stats.values))
                                 x_jittered = np.full(len(baseline_f1_stats.values), x_offset[j]) + jitter
                                 ax.scatter(x_jittered, baseline_f1_stats.values, 
-                                         color=self.colors.get(metric, f'C{i}'), 
+                                         color='#7A9E7E', 
                                          s=30, alpha=0.9, edgecolors='white', linewidth=1, zorder=3)
                         else:
                             metric_stats: MetricStats = getattr(group_stats, metric)
@@ -472,19 +497,20 @@ class MultiReplicaPlotter:
                     if mean > 0:  # Only show labels for non-zero values
                         height = bar.get_height()
                         # Adjust font size based on bar height and metric type
-                        fontsize = 7 if metric in ['recall', 'precision', 'mcc', 'mean_pairwise_f1'] else 8
-                        ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.01,
-                               f'{mean:.3f}', ha='center', va='bottom', 
+                        fontsize = 10 if metric in ['recall', 'precision', 'mcc', 'mean_pairwise_f1'] else 11
+                        ax.text(bar.get_x() + bar.get_width()/2., height + std + 0.02,
+                               f'{mean:.2f}', ha='center', va='bottom', 
                                fontsize=fontsize, fontweight='bold', alpha=0.9)
             
             # Styling
-            ax.set_xlabel('Stability Groups', fontsize=14, fontweight='bold')
-            ax.set_ylabel('Score', fontsize=14, fontweight='bold')
+            ax.set_xlabel('Stability Groups', fontsize=26, fontweight='bold')
+            ax.set_ylabel('Score', fontsize=26, fontweight='bold')
             
-            if title is None:
-                title = f'Performance by Interaction Stability ({frequency_type.title()} Frequency)'
-            ax.set_title(f'{title}\nAcross {aggregated_metrics.n_replicas} Replicas', 
-                        fontsize=16, fontweight='bold', pad=20)
+            # Removed title as requested
+            # if title is None:
+            #     title = f'Performance by Interaction Stability ({frequency_type.title()} Frequency)'
+            # ax.set_title(f'{title}\nAcross {aggregated_metrics.n_replicas} Replicas', 
+            #             fontsize=16, fontweight='bold', pad=20)
             
             # X-axis labels with pair counts
             group_labels_with_counts = []
@@ -519,11 +545,16 @@ class MultiReplicaPlotter:
                 group_labels_with_counts.append(f'{clean_name}\n{count_str}')
             
             ax.set_xticks(x_pos)
-            ax.set_xticklabels(group_labels_with_counts, fontsize=11)
-            ax.set_ylim(0, 1.0)
+            ax.set_xticklabels(group_labels_with_counts, fontsize=13)
+            ax.set_ylim(0, 1.1)
             
-            # Legend
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=11)
+            # Legend (figure-level, bottom)
+            handles, labels = ax.get_legend_handles_labels()
+            if handles:
+                fig.legend(handles, labels, loc='lower center',
+                           bbox_to_anchor=(0.5, -0.02),
+                           ncol=min(len(handles), 4),
+                           frameon=False, fontsize=20)
             
             # Grid
             ax.grid(True, alpha=0.3, axis='y')
@@ -548,280 +579,4 @@ class MultiReplicaPlotter:
             
         except Exception as e:
             self.logger.error(f"Failed to generate stability metrics plot: {e}")
-            return None
-    
-    def plot_training_vs_test_comparison(self, aggregated_metrics: AggregatedMetrics) -> Optional[str]:
-        """Plot comparison between training and test frequency stability metrics.
-        
-        Args:
-            aggregated_metrics: Aggregated metrics data
-            
-        Returns:
-            Path to generated plot file or None
-        """
-        try:
-            training_stats = aggregated_metrics.training_frequency_stats
-            test_stats = aggregated_metrics.test_frequency_stats
-            
-            if not training_stats or not test_stats:
-                self.logger.warning("Missing training or test stability stats for comparison")
-                return None
-            
-            # Always use the three main required categories for consistency
-            required_categories = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
-            common_groups = required_categories
-            
-            # Create subplot for F1 scores comparison
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8), dpi=self.dpi)
-            
-            # Plot 1: F1 Score comparison
-            x_pos = np.arange(len(common_groups))
-            bar_width = 0.35
-            
-            training_f1_means = [training_stats[g].f1.mean if g in training_stats else 0.0 for g in common_groups]
-            training_f1_stds = [training_stats[g].f1.std if g in training_stats else 0.0 for g in common_groups]
-            test_f1_means = [test_stats[g].f1.mean if g in test_stats else 0.0 for g in common_groups]
-            test_f1_stds = [test_stats[g].f1.std if g in test_stats else 0.0 for g in common_groups]
-            
-            bars1 = ax1.bar(x_pos - bar_width/2, training_f1_means, bar_width, 
-                           yerr=training_f1_stds, capsize=5, label='Training Frequency',
-                           color=self.colors['f1'], alpha=0.7, edgecolor='white')
-            
-            bars2 = ax1.bar(x_pos + bar_width/2, test_f1_means, bar_width,
-                           yerr=test_f1_stds, capsize=5, label='Test Frequency', 
-                           color=self.stability_palette['Rare'], alpha=0.7, edgecolor='white')
-            
-            # Add individual datapoints for F1 scores using MetricStats.values
-            for j, group_name in enumerate(common_groups):
-                # Plot training frequency points
-                if group_name in training_stats:
-                    training_f1_stats = training_stats[group_name].f1
-                    if training_f1_stats.values and len(training_f1_stats.values) > 1:
-                        jitter = np.random.normal(0, 0.02, len(training_f1_stats.values))
-                        x_jittered = np.full(len(training_f1_stats.values), x_pos[j] - bar_width/2) + jitter
-                        ax1.scatter(x_jittered, training_f1_stats.values, 
-                                  color=self.colors['f1'], s=30, alpha=0.9, 
-                                  edgecolors='white', linewidth=1, zorder=3)
-                
-                # Plot test frequency points
-                if group_name in test_stats:
-                    test_f1_stats = test_stats[group_name].f1
-                    if test_f1_stats.values and len(test_f1_stats.values) > 1:
-                        jitter = np.random.normal(0, 0.02, len(test_f1_stats.values))
-                        x_jittered = np.full(len(test_f1_stats.values), x_pos[j] + bar_width/2) + jitter
-                        ax1.scatter(x_jittered, test_f1_stats.values, 
-                                  color=self.stability_palette['Rare'], s=30, alpha=0.9, 
-                                  edgecolors='white', linewidth=1, zorder=3)
-            
-            # Add value labels
-            for bars, means in [(bars1, training_f1_means), (bars2, test_f1_means)]:
-                for bar, mean in zip(bars, means):
-                    if mean > 0:  # Only show labels for non-zero values
-                        height = bar.get_height()
-                        ax1.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                               f'{mean:.3f}', ha='center', va='bottom', 
-                               fontsize=9, fontweight='bold')
-            
-            ax1.set_xlabel('Stability Groups', fontsize=12, fontweight='bold')
-            ax1.set_ylabel('F1 Score', fontsize=12, fontweight='bold') 
-            ax1.set_title('F1 Score: Training vs Test Frequency Binning', fontsize=14, fontweight='bold')
-            ax1.set_xticks(x_pos)
-            ax1.set_xticklabels([g.replace('Moderate', 'Transient') for g in common_groups])
-            ax1.legend()
-            ax1.grid(True, alpha=0.3, axis='y')
-            ax1.set_ylim(0, 1.0)
-            
-            # Plot 2: Pair Count comparison  
-            training_counts = [training_stats[g].pair_count.mean if g in training_stats else 0.0 for g in common_groups]
-            training_count_stds = [training_stats[g].pair_count.std if g in training_stats else 0.0 for g in common_groups]
-            test_counts = [test_stats[g].pair_count.mean if g in test_stats else 0.0 for g in common_groups]
-            test_count_stds = [test_stats[g].pair_count.std if g in test_stats else 0.0 for g in common_groups]
-            
-            bars3 = ax2.bar(x_pos - bar_width/2, training_counts, bar_width,
-                           yerr=training_count_stds, capsize=5, label='Training Frequency',
-                           color=self.stability_palette['Stable'], alpha=0.7, edgecolor='white')
-            
-            bars4 = ax2.bar(x_pos + bar_width/2, test_counts, bar_width,
-                           yerr=test_count_stds, capsize=5, label='Test Frequency',
-                           color=self.publication_colors['highlight'], alpha=0.7, edgecolor='white')
-            
-            # Add individual datapoints for pair counts using MetricStats.values
-            for j, group_name in enumerate(common_groups):
-                # Plot training pair count points
-                if group_name in training_stats:
-                    training_count_stats = training_stats[group_name].pair_count
-                    if training_count_stats.values and len(training_count_stats.values) > 1:
-                        jitter = np.random.normal(0, 0.02, len(training_count_stats.values))
-                        x_jittered = np.full(len(training_count_stats.values), x_pos[j] - bar_width/2) + jitter
-                        ax2.scatter(x_jittered, training_count_stats.values, 
-                                  color=self.stability_palette['Stable'], s=30, alpha=0.9, 
-                                  edgecolors='white', linewidth=1, zorder=3)
-                
-                # Plot test pair count points
-                if group_name in test_stats:
-                    test_count_stats = test_stats[group_name].pair_count
-                    if test_count_stats.values and len(test_count_stats.values) > 1:
-                        jitter = np.random.normal(0, 0.02, len(test_count_stats.values))
-                        x_jittered = np.full(len(test_count_stats.values), x_pos[j] + bar_width/2) + jitter
-                        ax2.scatter(x_jittered, test_count_stats.values, 
-                                  color=self.publication_colors['highlight'], s=30, alpha=0.9, 
-                                  edgecolors='white', linewidth=1, zorder=3)
-            
-            ax2.set_xlabel('Stability Groups', fontsize=12, fontweight='bold')
-            ax2.set_ylabel('Pair Count', fontsize=12, fontweight='bold')
-            ax2.set_title('Pair Counts: Training vs Test Frequency Binning', fontsize=14, fontweight='bold') 
-            ax2.set_xticks(x_pos)
-            ax2.set_xticklabels([g.replace('Moderate', 'Transient') for g in common_groups])
-            ax2.legend()
-            ax2.grid(True, alpha=0.3, axis='y')
-            
-            plt.suptitle(f'Training vs Test Frequency Comparison\nAcross {aggregated_metrics.n_replicas} Replicas', 
-                        fontsize=16, fontweight='bold')
-            plt.tight_layout()
-            
-            # Save plot
-            output_path = os.path.join(self.output_directory, "multi_replica_training_vs_test_comparison.png")
-            plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
-            plt.close()
-            
-            self.logger.info(f"Generated training vs test comparison plot: {output_path}")
-            return output_path
-            
-        except Exception as e:
-            self.logger.error(f"Failed to generate training vs test comparison plot: {e}")
-            return None
-    
-    def plot_individual_metrics(self, aggregated_metrics: AggregatedMetrics) -> List[str]:
-        """Plot individual metrics in detail with error bars.
-        
-        Args:
-            aggregated_metrics: Aggregated metrics data
-            
-        Returns:
-            List of generated plot file paths
-        """
-        generated_plots = []
-        
-        metrics_to_plot = [
-            ('f1', 'F1 Score'),
-            ('recall', 'Recall'),
-            ('precision', 'Precision'),
-            ('mcc', 'MCC')
-        ]
-        
-        for metric_name, metric_label in metrics_to_plot:
-            plot_path = self._plot_single_metric_comparison(
-                aggregated_metrics, metric_name, metric_label
-            )
-            if plot_path:
-                generated_plots.append(plot_path)
-        
-        return generated_plots
-    
-    def _plot_single_metric_comparison(
-        self, 
-        aggregated_metrics: AggregatedMetrics, 
-        metric_name: str, 
-        metric_label: str
-    ) -> Optional[str]:
-        """Plot a single metric comparing training vs test frequency binning."""
-        try:
-            fig, ax = plt.subplots(figsize=(12, 8), dpi=self.dpi)
-            
-            training_stats = aggregated_metrics.training_frequency_stats
-            test_stats = aggregated_metrics.test_frequency_stats
-            
-            # Always use the three main required categories for consistency
-            required_categories = ['Rare (<5%)', 'Moderate (5-50%)', 'Stable (>50%)']
-            common_groups = required_categories
-            
-            x_pos = np.arange(len(common_groups))
-            bar_width = 0.35
-            
-            # Get metric values
-            training_means = []
-            training_stds = []
-            test_means = []
-            test_stds = []
-            
-            for group in common_groups:
-                if group in training_stats:
-                    training_metric_stats = getattr(training_stats[group], metric_name)
-                    training_means.append(training_metric_stats.mean)
-                    training_stds.append(training_metric_stats.std)
-                else:
-                    training_means.append(0.0)
-                    training_stds.append(0.0)
-                
-                if group in test_stats:
-                    test_metric_stats = getattr(test_stats[group], metric_name)
-                    test_means.append(test_metric_stats.mean)
-                    test_stds.append(test_metric_stats.std)
-                else:
-                    test_means.append(0.0)
-                    test_stds.append(0.0)
-            
-            # Create bars
-            bars1 = ax.bar(x_pos - bar_width/2, training_means, bar_width,
-                          yerr=training_stds, capsize=5, label='Training Frequency',
-                          color=self.colors.get(metric_name, self.publication_colors['secondary']), alpha=0.7)
-            
-            bars2 = ax.bar(x_pos + bar_width/2, test_means, bar_width,
-                          yerr=test_stds, capsize=5, label='Test Frequency',
-                          color=self.stability_palette['Rare'], alpha=0.7)
-            
-            # Add individual datapoints using MetricStats.values
-            for j, group_name in enumerate(common_groups):
-                # Plot training frequency points
-                if group_name in training_stats:
-                    training_metric_stats = getattr(training_stats[group_name], metric_name)
-                    if training_metric_stats.values and len(training_metric_stats.values) > 1:
-                        jitter = np.random.normal(0, 0.02, len(training_metric_stats.values))
-                        x_jittered = np.full(len(training_metric_stats.values), x_pos[j] - bar_width/2) + jitter
-                        ax.scatter(x_jittered, training_metric_stats.values, 
-                                 color=self.colors.get(metric_name, self.publication_colors['secondary']), 
-                                 s=30, alpha=0.9, edgecolors='white', linewidth=1, zorder=3)
-                
-                # Plot test frequency points
-                if group_name in test_stats:
-                    test_metric_stats = getattr(test_stats[group_name], metric_name)
-                    if test_metric_stats.values and len(test_metric_stats.values) > 1:
-                        jitter = np.random.normal(0, 0.02, len(test_metric_stats.values))
-                        x_jittered = np.full(len(test_metric_stats.values), x_pos[j] + bar_width/2) + jitter
-                        ax.scatter(x_jittered, test_metric_stats.values, 
-                                 color=self.stability_palette['Rare'], s=30, alpha=0.9, 
-                                 edgecolors='white', linewidth=1, zorder=3)
-            
-            # Add value labels
-            for bars, means in [(bars1, training_means), (bars2, test_means)]:
-                for bar, mean in zip(bars, means):
-                    if mean > 0:  # Only show labels for non-zero values
-                        height = bar.get_height()
-                        ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                               f'{mean:.3f}', ha='center', va='bottom', 
-                               fontsize=9, fontweight='bold')
-            
-            # Styling
-            ax.set_xlabel('Stability Groups', fontsize=14, fontweight='bold')
-            ax.set_ylabel(metric_label, fontsize=14, fontweight='bold')
-            ax.set_title(f'{metric_label} by Stability Group\nAcross {aggregated_metrics.n_replicas} Replicas',
-                        fontsize=16, fontweight='bold')
-            ax.set_xticks(x_pos)
-            ax.set_xticklabels([g.replace('Moderate', 'Transient') for g in common_groups])
-            ax.legend()
-            ax.grid(True, alpha=0.3, axis='y')
-            ax.set_ylim(0, 1.0)
-            
-            plt.tight_layout()
-            
-            # Save plot
-            output_path = os.path.join(self.output_directory, f"multi_replica_{metric_name}_comparison.png")
-            plt.savefig(output_path, dpi=self.dpi, bbox_inches='tight')
-            plt.close()
-            
-            self.logger.info(f"Generated {metric_label} comparison plot: {output_path}")
-            return output_path
-            
-        except Exception as e:
-            self.logger.error(f"Failed to generate {metric_label} comparison plot: {e}")
             return None
