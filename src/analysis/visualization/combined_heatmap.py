@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Combined heatmap visualization for multiple complexes and temporal splits.
 
-Generates a single-column grid of interaction dynamics heatmaps:
-- 6 rows: 3 splits × 2 complexes
-- Order: For each split, show 1EAW then 1JPS
+Generates separate heatmap figures for each complex:
+- One file per complex (heatmap_1EAW.png, heatmap_1JPS.png)
+- 3 rows per file: one for each split (80/10/10, 50/25/25, 25/37.5/37.5)
 
 Input structure:
     results_all/
@@ -252,12 +252,12 @@ class CombinedHeatmapPlotter:
                 return ""
         return formatter
     
-    def plot_combined_heatmaps(
+    def plot_heatmaps_by_complex(
         self, 
         discovered_paths: Dict[str, Dict[str, Path]],
         num_pairs: int = 30
-    ) -> Optional[str]:
-        """Generate combined single-column heatmap figure with consistent cell sizes."""
+    ) -> List[str]:
+        """Generate separate heatmap figures for each complex (one file per complex)."""
         cmap_overlay = mcolors.ListedColormap([
             self.OKABE_ITO['light_gray'],
             self.OKABE_ITO['sky_blue'],
@@ -268,121 +268,123 @@ class CombinedHeatmapPlotter:
         bounds = [0, 1, 2, 3, 4, 5]
         norm = mcolors.BoundaryNorm(bounds, cmap_overlay.N)
         
-        plot_order = []
+        output_paths = []
+        
         for complex_name in self.COMPLEXES:
-            for split, split_label in zip(self.SPLITS, self.SPLIT_LABELS):
-                plot_order.append((complex_name, split, split_label))
-        
-        plot_data: List[Dict[str, Any]] = []
-        for complex_name, split, split_label in plot_order:
-            entry = {
-                'complex': complex_name,
-                'split': split,
-                'split_label': split_label,
-                'overlay_matrix': None,
-                'history_offset': 0,
-                'n_rows': 1
-            }
-            
-            if complex_name in discovered_paths and split in discovered_paths[complex_name]:
-                results_dir = discovered_paths[complex_name][split]
-                self.logger.info(f"Loading {complex_name}/{split}...")
-                processed_data = self.load_and_process_data(results_dir)
-                
-                if processed_data is not None:
-                    overlay_matrix, history_offset = self._process_data_for_heatmap(processed_data, num_pairs)
-                    entry['overlay_matrix'] = overlay_matrix
-                    entry['history_offset'] = history_offset
-                    entry['n_rows'] = len(overlay_matrix.index)
-                    self.logger.info(f"  {complex_name}/{split}: {entry['n_rows']} pairs")
-            
-            plot_data.append(entry)
-        
-        height_ratios = [max(d['n_rows'], 5) for d in plot_data]
-        
-        cell_height = 0.08
-        total_data_height = sum(height_ratios) * cell_height
-        title_space = len(plot_data) * 0.4
-        legend_space = 0.8
-        fig_height = total_data_height + title_space + legend_space
-        
-        fig = plt.figure(figsize=(16, fig_height), dpi=300)
-        gs = gridspec.GridSpec(len(plot_data), 1, height_ratios=height_ratios, hspace=0.25)
-        
-        for row_idx, entry in enumerate(plot_data):
-            ax = fig.add_subplot(gs[row_idx])
-            is_last_row = (row_idx == len(plot_data) - 1)
-            complex_name = entry['complex']
-            split_label = entry['split_label']
-            overlay_matrix = entry['overlay_matrix']
-            history_offset = entry['history_offset']
-            
-            if overlay_matrix is None:
-                ax.text(0.5, 0.5, 'No Data', ha='center', va='center',
-                       fontsize=14, color='gray', transform=ax.transAxes)
-                ax.set_xlim(0, 1)
-                ax.set_ylim(0, 1)
-                ax.set_title(f'{complex_name} {split_label} Split', fontsize=16, pad=8)
+            if complex_name not in discovered_paths:
+                self.logger.warning(f"No data for complex {complex_name}, skipping")
                 continue
             
-            sns.heatmap(
-                overlay_matrix.fillna(0).astype(int),
-                ax=ax,
-                cmap=cmap_overlay,
-                norm=norm,
-                cbar=False,
-                yticklabels=overlay_matrix.index,
-                xticklabels=False,
-                linewidths=0.02,
-                linecolor='white',
-                square=False
-            )
+            plot_data: List[Dict[str, Any]] = []
+            for split, split_label in zip(self.SPLITS, self.SPLIT_LABELS):
+                entry = {
+                    'split': split,
+                    'split_label': split_label,
+                    'overlay_matrix': None,
+                    'history_offset': 0,
+                    'n_rows': 1
+                }
+                
+                if split in discovered_paths[complex_name]:
+                    results_dir = discovered_paths[complex_name][split]
+                    self.logger.info(f"Loading {complex_name}/{split}...")
+                    processed_data = self.load_and_process_data(results_dir)
+                    
+                    if processed_data is not None:
+                        overlay_matrix, history_offset = self._process_data_for_heatmap(processed_data, num_pairs)
+                        entry['overlay_matrix'] = overlay_matrix
+                        entry['history_offset'] = history_offset
+                        entry['n_rows'] = len(overlay_matrix.index)
+                        self.logger.info(f"  {complex_name}/{split}: {entry['n_rows']} pairs")
+                
+                plot_data.append(entry)
             
-            timestamps = overlay_matrix.columns
-            ax.xaxis.set_major_formatter(FuncFormatter(self._create_time_formatter(timestamps)))
-            ax.xaxis.set_major_locator(MultipleLocator(10))
-            ax.tick_params(axis='x', labelsize=10, rotation=0)
+            height_ratios = [max(d['n_rows'], 5) for d in plot_data]
             
-            num_labels = len(overlay_matrix.index)
-            y_fontsize = max(5, min(8, int(120 / num_labels)))
-            ax.tick_params(axis='y', labelsize=y_fontsize)
+            cell_height = 0.08
+            total_data_height = sum(height_ratios) * cell_height
+            title_space = len(plot_data) * 0.4
+            legend_space = 1.2
+            fig_height = total_data_height + title_space + legend_space
             
-            if history_offset > 0:
-                ax.axvline(x=history_offset, color=self.OKABE_ITO['dark_gray'],
-                          linestyle='--', linewidth=1.5, alpha=0.7)
+            fig = plt.figure(figsize=(16, fig_height), dpi=300)
+            gs = gridspec.GridSpec(len(plot_data), 1, height_ratios=height_ratios, hspace=0.25)
             
-            ax.set_title(f'{complex_name} {split_label} Split', fontsize=16, pad=8)
-            ax.set_ylabel('Residue Pair', fontsize=14)
+            for row_idx, entry in enumerate(plot_data):
+                ax = fig.add_subplot(gs[row_idx])
+                is_last_row = (row_idx == len(plot_data) - 1)
+                split_label = entry['split_label']
+                overlay_matrix = entry['overlay_matrix']
+                history_offset = entry['history_offset']
+                
+                if overlay_matrix is None:
+                    ax.text(0.5, 0.5, 'No Data', ha='center', va='center',
+                           fontsize=14, color='gray', transform=ax.transAxes)
+                    ax.set_xlim(0, 1)
+                    ax.set_ylim(0, 1)
+                    ax.set_title(f'{split_label} Split', fontsize=16, pad=8)
+                    continue
+                
+                sns.heatmap(
+                    overlay_matrix.fillna(0).astype(int),
+                    ax=ax,
+                    cmap=cmap_overlay,
+                    norm=norm,
+                    cbar=False,
+                    yticklabels=overlay_matrix.index,
+                    xticklabels=False,
+                    linewidths=0.02,
+                    linecolor='white',
+                    square=False
+                )
+                
+                timestamps = overlay_matrix.columns
+                ax.xaxis.set_major_formatter(FuncFormatter(self._create_time_formatter(timestamps)))
+                ax.xaxis.set_major_locator(MultipleLocator(10))
+                ax.tick_params(axis='x', labelsize=10, rotation=0)
+                
+                num_labels = len(overlay_matrix.index)
+                y_fontsize = max(5, min(8, int(120 / num_labels)))
+                ax.tick_params(axis='y', labelsize=y_fontsize)
+                
+                if history_offset > 0:
+                    ax.axvline(x=history_offset, color=self.OKABE_ITO['dark_gray'],
+                              linestyle='--', linewidth=1.5, alpha=0.7)
+                
+                ax.set_title(f'{split_label} Split', fontsize=16, pad=8)
+                ax.set_ylabel('Residue Pair', fontsize=14)
+                
+                if is_last_row:
+                    ax.set_xlabel('Simulation time (ns)', fontsize=14)
+                else:
+                    ax.set_xlabel('')
+                
+                label = chr(ord('A') + row_idx)
+                ax.text(-0.08, 1.15, label, transform=ax.transAxes, fontsize=18,
+                       fontweight='bold', va='top', ha='left')
             
-            if is_last_row:
-                ax.set_xlabel('Simulation time (ns)', fontsize=14)
-            else:
-                ax.set_xlabel('')
+            legend_elements = [
+                Patch(facecolor=self.OKABE_ITO['light_gray'], label='TN'),
+                Patch(facecolor=self.OKABE_ITO['sky_blue'], label='FN'),
+                Patch(facecolor=self.OKABE_ITO['vermilion'], label='FP'),
+                Patch(facecolor=self.OKABE_ITO['bluish_green'], label='TP'),
+                Patch(facecolor=self.OKABE_ITO['neutral_gray'], label='History'),
+            ]
+            fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, -0.02),
+                      ncol=5, frameon=False, fontsize=14)
             
-            label = chr(ord('A') + row_idx)
-            ax.text(-0.08, 1.15, label, transform=ax.transAxes, fontsize=18,
-                   fontweight='bold', va='top', ha='left')
+            plt.subplots_adjust(bottom=0.06, top=0.97, left=0.15, right=0.95)
+            
+            output_path = self.output_directory / f"heatmap_{complex_name}.png"
+            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            svg_path = self.output_directory / f"heatmap_{complex_name}.svg"
+            plt.savefig(svg_path, format='svg', bbox_inches='tight')
+            plt.close()
+            
+            self.logger.info(f"Generated heatmap for {complex_name}: {output_path}")
+            output_paths.append(str(output_path))
         
-        legend_elements = [
-            Patch(facecolor=self.OKABE_ITO['light_gray'], label='TN'),
-            Patch(facecolor=self.OKABE_ITO['sky_blue'], label='FN'),
-            Patch(facecolor=self.OKABE_ITO['vermilion'], label='FP'),
-            Patch(facecolor=self.OKABE_ITO['bluish_green'], label='TP'),
-            Patch(facecolor=self.OKABE_ITO['neutral_gray'], label='History'),
-        ]
-        fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 0.005),
-                  ncol=5, frameon=False, fontsize=14)
-        
-        plt.subplots_adjust(bottom=0.04, top=0.97, left=0.15, right=0.95)
-        
-        output_path = self.output_directory / "combined_heatmaps.png"
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        svg_path = self.output_directory / "combined_heatmaps.svg"
-        plt.savefig(svg_path, format='svg', bbox_inches='tight')
-        plt.close()
-        
-        self.logger.info(f"Generated combined heatmap: {output_path}")
-        return str(output_path)
+        return output_paths
 
 
 def main():
@@ -447,12 +449,13 @@ Examples:
                 logger.info(f"  {complex_name}/{split}: {path}")
         logger.info("=" * 60)
         
-        output_path = plotter.plot_combined_heatmaps(discovered, num_pairs=args.pairs)
+        output_paths = plotter.plot_heatmaps_by_complex(discovered, num_pairs=args.pairs)
         
-        if output_path:
-            logger.info(f"Successfully generated combined heatmap: {output_path}")
+        if output_paths:
+            for path in output_paths:
+                logger.info(f"Successfully generated: {path}")
         else:
-            logger.warning("No plot was generated")
+            logger.warning("No plots were generated")
         
         logger.info("Combined heatmap generation completed")
         return 0
