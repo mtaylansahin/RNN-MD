@@ -55,8 +55,8 @@ class CombinedMultiReplicaPlotter:
     
     # Configuration
     COMPLEXES = ['1EAW', '1JPS']
-    SPLITS = ['25-375-375', '50-25-25', '80-10-10']
-    SPLIT_LABELS = ['25/375/375', '50/25/25', '80/10/10']
+    SPLITS = ['80-10-10', '50-25-25', '25-375-375']
+    SPLIT_LABELS = ['80/10/10', '50/25/25', '25/37.5/37.5']
     
     def __init__(self, output_directory: str):
         """Initialize combined multi-replica plotter.
@@ -74,13 +74,13 @@ class CombinedMultiReplicaPlotter:
         plt.rcParams.update({
             'font.family': 'sans-serif',
             'font.sans-serif': ['Arial', 'DejaVu Sans', 'Liberation Sans', 'sans-serif'],
-            'font.size': 14,
-            'axes.titlesize': 18,
-            'axes.labelsize': 16,
-            'xtick.labelsize': 12,
-            'ytick.labelsize': 12,
-            'legend.fontsize': 14,
-            'figure.titlesize': 20,
+            'font.size': 18,
+            'axes.titlesize': 24,
+            'axes.labelsize': 22,
+            'xtick.labelsize': 18,
+            'ytick.labelsize': 18,
+            'legend.fontsize': 20,
+            'figure.titlesize': 28,
             'axes.spines.top': False,
             'axes.spines.right': False,
             'axes.spines.left': True,
@@ -227,10 +227,10 @@ class CombinedMultiReplicaPlotter:
         self, 
         all_metrics: Dict[str, Dict[str, AggregatedMetrics]]
     ) -> Optional[str]:
-        """Plot combined overall metrics in a 2×3 grid.
+        """Plot combined overall metrics in a 3×2 grid.
         
-        Rows: Complexes (1EAW, 1JPS)
-        Columns: Splits (25-375-375, 50-25-25, 80-10-10)
+        Rows: Splits (25/37.5/37.5, 50/25/25, 80/10/10)
+        Columns: Complexes (1EAW, 1JPS)
         
         Args:
             all_metrics: Nested dict of aggregated metrics
@@ -239,7 +239,7 @@ class CombinedMultiReplicaPlotter:
             Path to generated plot file or None
         """
         try:
-            fig, axes = plt.subplots(2, 3, figsize=(24, 14), dpi=self.dpi)
+            fig, axes = plt.subplots(3, 2, figsize=(16, 20), dpi=self.dpi)
             
             metrics = ['model_recall', 'model_precision', 'model_f1', 'model_mcc', 'model_mean_pairwise_f1']
             metric_labels = ['Recall', 'Precision', 'F1', 'MCC', 'Mean\nPairwise F1']
@@ -247,14 +247,14 @@ class CombinedMultiReplicaPlotter:
             # Track if any subplot has baseline for unified legend
             any_baseline = False
             
-            for row_idx, complex_name in enumerate(self.COMPLEXES):
-                for col_idx, (split, split_label) in enumerate(zip(self.SPLITS, self.SPLIT_LABELS)):
+            for row_idx, (split, split_label) in enumerate(zip(self.SPLITS, self.SPLIT_LABELS)):
+                for col_idx, complex_name in enumerate(self.COMPLEXES):
                     ax = axes[row_idx, col_idx]
                     
                     # Check if data exists for this combination
                     if complex_name not in all_metrics or split not in all_metrics[complex_name]:
                         ax.text(0.5, 0.5, 'No Data', ha='center', va='center', 
-                               fontsize=14, color='gray', transform=ax.transAxes)
+                               fontsize=18, color='gray', transform=ax.transAxes)
                         ax.set_xlim(0, 1)
                         ax.set_ylim(0, 1)
                         continue
@@ -338,41 +338,31 @@ class CombinedMultiReplicaPlotter:
                                           s=25, alpha=0.9, edgecolors='#7A9E7E',
                                           linewidth=1, zorder=3, marker='s')
                     
-                    # Add mean value labels
-                    for bar, mean, std in zip(bars_model, model_means, model_stds):
-                        ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + std + 0.02,
-                               f'{mean:.2f}', ha='center', va='bottom', fontsize=9, fontweight='bold')
-                    
                     # Styling
                     ax.set_xticks(x_pos)
-                    ax.set_xticklabels(metric_labels, fontsize=10)
+                    ax.set_xticklabels(metric_labels, fontsize=16)
                     ax.set_ylim(0, 1.15)
                     ax.grid(visible=True, axis='y', alpha=0.2)
                     ax.grid(visible=False, axis='x')
                     
-                    # Add replica count annotation
-                    ax.text(0.98, 0.98, f'N={overall.n_replicas}', transform=ax.transAxes,
-                           fontsize=10, ha='right', va='top',
-                           bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8))
-                    
-                    # Column headers (top row only)
+                    # Column headers (top row only) - Complex names
                     if row_idx == 0:
-                        ax.set_title(f'Split: {split_label}', fontsize=16, fontweight='bold', pad=10)
+                        ax.set_title(complex_name, fontsize=22, fontweight='bold', pad=10)
                     
                     # Y-axis label (left column only)
                     if col_idx == 0:
-                        ax.set_ylabel('Score', fontsize=14, fontweight='bold')
+                        ax.set_ylabel('Score', fontsize=20)
                     
-                    # Row labels (right side)
-                    if col_idx == 2:
-                        ax.annotate(complex_name, xy=(1.05, 0.5), xycoords='axes fraction',
-                                   fontsize=16, fontweight='bold', ha='left', va='center', rotation=-90)
+                    # Row labels (right side) - Split names
+                    if col_idx == 1:
+                        ax.annotate(f'{split_label} Split', xy=(1.05, 0.5), xycoords='axes fraction',
+                                   fontsize=22, fontweight='bold', ha='left', va='center', rotation=-90)
             
-            # Panel labels
-            for idx, (row_idx, col_idx) in enumerate([(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]):
+            # Panel labels (3x2 grid: A-F)
+            for idx, (row_idx, col_idx) in enumerate([(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]):
                 label = chr(ord('A') + idx)
                 ax = axes[row_idx, col_idx]
-                ax.text(-0.12, 1.05, label, transform=ax.transAxes, fontsize=20,
+                ax.text(-0.12, 1.05, label, transform=ax.transAxes, fontsize=26,
                        fontweight='bold', va='top', ha='left')
             
             # Unified legend at bottom
@@ -382,10 +372,10 @@ class CombinedMultiReplicaPlotter:
                     Patch(facecolor='#7A9E7E', edgecolor='white', hatch='//', alpha=0.55, label='Baseline')
                 ]
                 fig.legend(handles=handles, loc='lower center', bbox_to_anchor=(0.5, 0.02),
-                          ncol=2, frameon=False, fontsize=16)
+                          ncol=2, frameon=False, fontsize=20)
             
             plt.tight_layout()
-            plt.subplots_adjust(bottom=0.1, right=0.94, hspace=0.25, wspace=0.15)
+            plt.subplots_adjust(bottom=0.08, right=0.88, hspace=0.25, wspace=0.15)
             
             # Save
             output_path = os.path.join(self.output_directory, "combined_overall_metrics.png")
@@ -408,10 +398,10 @@ class CombinedMultiReplicaPlotter:
         all_metrics: Dict[str, Dict[str, AggregatedMetrics]],
         frequency_type: str = "training"
     ) -> Optional[str]:
-        """Plot combined stability metrics in a 2×3 grid.
+        """Plot combined stability metrics in a 3×2 grid.
         
-        Rows: Complexes (1EAW, 1JPS)
-        Columns: Splits (25-375-375, 50-25-25, 80-10-10)
+        Rows: Splits (25/37.5/37.5, 50/25/25, 80/10/10)
+        Columns: Complexes (1EAW, 1JPS)
         
         Args:
             all_metrics: Nested dict of aggregated metrics
@@ -421,7 +411,7 @@ class CombinedMultiReplicaPlotter:
             Path to generated plot file or None
         """
         try:
-            fig, axes = plt.subplots(2, 3, figsize=(24, 14), dpi=self.dpi)
+            fig, axes = plt.subplots(3, 2, figsize=(16, 20), dpi=self.dpi)
             
             # Metrics to plot
             metric_names = ['recall', 'precision', 'f1', 'mcc', 'mean_pairwise_f1']
@@ -454,14 +444,14 @@ class CombinedMultiReplicaPlotter:
             legend_handles = []
             legend_labels = []
             
-            for row_idx, complex_name in enumerate(self.COMPLEXES):
-                for col_idx, (split, split_label) in enumerate(zip(self.SPLITS, self.SPLIT_LABELS)):
+            for row_idx, (split, split_label) in enumerate(zip(self.SPLITS, self.SPLIT_LABELS)):
+                for col_idx, complex_name in enumerate(self.COMPLEXES):
                     ax = axes[row_idx, col_idx]
                     
                     # Check if data exists
                     if complex_name not in all_metrics or split not in all_metrics[complex_name]:
                         ax.text(0.5, 0.5, 'No Data', ha='center', va='center',
-                               fontsize=14, color='gray', transform=ax.transAxes)
+                               fontsize=18, color='gray', transform=ax.transAxes)
                         ax.set_xlim(0, 1)
                         ax.set_ylim(0, 1)
                         continue
@@ -471,7 +461,7 @@ class CombinedMultiReplicaPlotter:
                     
                     if not stability_stats:
                         ax.text(0.5, 0.5, 'No Stability Data', ha='center', va='center',
-                               fontsize=14, color='gray', transform=ax.transAxes)
+                               fontsize=18, color='gray', transform=ax.transAxes)
                         continue
                     
                     # Set up bar positions
@@ -518,7 +508,7 @@ class CombinedMultiReplicaPlotter:
                                          alpha=0.8, edgecolor='white', linewidth=0.5)
                         
                         # Store handles for legend (only from first valid subplot)
-                        if row_idx == 0 and col_idx == 0 and not legend_handles:
+                        if row_idx == 0 and col_idx == 0:
                             legend_handles.append(bars[0])
                             legend_labels.append(label)
                         
@@ -542,56 +532,41 @@ class CombinedMultiReplicaPlotter:
                                                   color=self.colors.get(metric, f'C{i}'),
                                                   s=15, alpha=0.9, edgecolors='white', linewidth=0.5, zorder=3)
                         
-                        # Add value labels
-                        for bar, mean, std in zip(bars, means, stds):
-                            if mean > 0:
-                                ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + std + 0.02,
-                                       f'{mean:.2f}', ha='center', va='bottom', fontsize=6, fontweight='bold')
-                    
                     # Styling
                     ax.set_xticks(x_pos)
-                    ax.set_xticklabels(group_display_names, fontsize=10)
+                    ax.set_xticklabels(group_display_names, fontsize=16)
                     ax.set_ylim(0, 1.15)
                     ax.grid(True, alpha=0.3, axis='y')
                     ax.grid(False, axis='x')
                     
-                    # Add replica count
-                    ax.text(0.98, 0.98, f'N={aggregated.n_replicas}', transform=ax.transAxes,
-                           fontsize=10, ha='right', va='top',
-                           bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8))
-                    
-                    # Column headers
+                    # Column headers (top row only) - Complex names
                     if row_idx == 0:
-                        ax.set_title(f'Split: {split_label}', fontsize=16, fontweight='bold', pad=10)
+                        ax.set_title(complex_name, fontsize=22, fontweight='bold', pad=10)
                     
-                    # Y-axis label
+                    # Y-axis label (left column only)
                     if col_idx == 0:
-                        ax.set_ylabel('Score', fontsize=14, fontweight='bold')
+                        ax.set_ylabel('Score', fontsize=20)
                     
-                    # X-axis label (bottom row only)
-                    if row_idx == 1:
-                        ax.set_xlabel('Stability Groups', fontsize=14, fontweight='bold')
-                    
-                    # Row labels
-                    if col_idx == 2:
-                        ax.annotate(complex_name, xy=(1.05, 0.5), xycoords='axes fraction',
-                                   fontsize=16, fontweight='bold', ha='left', va='center', rotation=-90)
+                    # Row labels (right side) - Split names
+                    if col_idx == 1:
+                        ax.annotate(f'{split_label} Split', xy=(1.05, 0.5), xycoords='axes fraction',
+                                   fontsize=22, fontweight='bold', ha='left', va='center', rotation=-90)
             
-            # Panel labels
-            for idx, (row_idx, col_idx) in enumerate([(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]):
+            # Panel labels (3x2 grid: A-F)
+            for idx, (row_idx, col_idx) in enumerate([(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]):
                 label = chr(ord('A') + idx)
                 ax = axes[row_idx, col_idx]
-                ax.text(-0.12, 1.05, label, transform=ax.transAxes, fontsize=20,
+                ax.text(-0.12, 1.05, label, transform=ax.transAxes, fontsize=26,
                        fontweight='bold', va='top', ha='left')
             
             # Unified legend at bottom
             if legend_handles:
                 fig.legend(legend_handles, legend_labels, loc='lower center',
                           bbox_to_anchor=(0.5, 0.01), ncol=min(len(legend_handles), 6),
-                          frameon=False, fontsize=14)
+                          frameon=False, fontsize=20)
             
             plt.tight_layout()
-            plt.subplots_adjust(bottom=0.12, right=0.94, hspace=0.25, wspace=0.15)
+            plt.subplots_adjust(bottom=0.1, right=0.88, hspace=0.25, wspace=0.15)
             
             # Save
             filename = f"combined_stability_{frequency_type}"
