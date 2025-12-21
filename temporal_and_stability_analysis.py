@@ -133,6 +133,21 @@ class TemporalStabilityAnalysis:
                 return f"Replica {nums[0]}"
         return replica_name.capitalize() if replica_name else replica_name
 
+    @staticmethod
+    def _format_complex_label(complex_name: str) -> str:
+        """Return publication-ready complex label."""
+        if not complex_name:
+            return complex_name
+
+        base = complex_name.replace("_interchain", "")
+        base_upper = base.upper()
+
+        if "1EAW" in base_upper:
+            return "Enzyme-inhibitor complex"
+        if "1JPS" in base_upper:
+            return "Antibody-antigen complex"
+        return base
+
     def _prioritized_complexes(self) -> List[str]:
         """Order complexes with 1JPS first, then 1EAW, then any others."""
         keys = sorted(self.all_data.keys())
@@ -220,7 +235,7 @@ class TemporalStabilityAnalysis:
         
         for row_idx, complex_name in enumerate(plot_complexes):
             complex_data = self.all_data[complex_name]
-            clean_name = complex_name.replace('_interchain', '')
+            clean_name = self._format_complex_label(complex_name)
             
             axes[row_idx, 1].annotate(clean_name, 
                                     xy=(1.03, 0.5), xytext=(0, 0),
@@ -345,7 +360,7 @@ class TemporalStabilityAnalysis:
             if not replicas:
                 continue
             
-            complex_display_name = complex_name.replace('_interchain', '')
+            complex_display_name = self._format_complex_label(complex_name)
             replica_list = sorted(list(replicas.items()))
             
             complex_stats = {
@@ -395,9 +410,6 @@ class TemporalStabilityAnalysis:
                     else:
                         patch.set_facecolor(self.stability_palette['Stable'])
                 
-                ax.axvline(5, color="#34495E", linestyle="--", alpha=0.6, linewidth=1.5)
-                ax.axvline(50, color="#34495E", linestyle="--", alpha=0.6, linewidth=1.5)
-                
                 rare_count = (frequencies < 5).sum()
                 transient_count = ((frequencies >= 5) & (frequencies <= 50)).sum()
                 stable_count = (frequencies > 50).sum()
@@ -426,7 +438,7 @@ class TemporalStabilityAnalysis:
                 if replica_idx != 0:
                     ax.set_yticklabels([])
                 
-                stats_text = f"n={total_pairs:,}\nμ={frequencies.mean():.1f}%"
+                stats_text = f"n={total_pairs:,}"
                 props = dict(boxstyle='round,pad=0.25', facecolor='white', alpha=0.85, edgecolor='gray', linewidth=0.5)
                 ax.text(0.97, 0.95, stats_text, transform=ax.transAxes, fontsize=18,
                        verticalalignment='top', horizontalalignment='right', bbox=props)
@@ -507,7 +519,7 @@ class TemporalStabilityAnalysis:
                     fontsize=18, fontweight='bold', y=0.95)
         
         complex_names = list(complex_stats.keys())
-        display_names = [name.replace('_interchain', '') for name in complex_names]
+        display_names = [self._format_complex_label(name) for name in complex_names]
         
         ax1 = axes[0, 0]
         rare_props = []
